@@ -248,4 +248,10 @@ enum Preferences {
         get { store.bool(forKey: "colorByProject") }
         set { store.set(newValue, forKey: "colorByProject") }
     }
+
+    /// The global ⌃⌥J shortcut that jumps to a waiting or finished session; off until the user turns it on.
+    static var jumpToWaiting: Bool {
+        get { store.bool(forKey: "jumpToWaiting") }
+        set { store.set(newValue, forKey: "jumpToWaiting") }
+    }
 }

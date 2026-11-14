@@ -5,11 +5,13 @@ import TomariCore
 final class MenuBar: NSObject, NSMenuDelegate {
     private let link: AgentLink
     private let strip: StripController
+    private let jumpKey: JumpHotKey
     private let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
 
-    init(link: AgentLink, strip: StripController) {
+    init(link: AgentLink, strip: StripController, jumpKey: JumpHotKey) {
         self.link = link
         self.strip = strip
+        self.jumpKey = jumpKey
         super.init()
         item.button?.image = Self.icon()
         item.button?.imagePosition = .imageLeading
@@ -53,6 +55,13 @@ final class MenuBar: NSObject, NSMenuDelegate {
         byProject.state = Preferences.colorByProject ? .on : .off
         menu.addItem(byProject)
 
+        // Retried here so the shortcut recovers once whoever held it lets go.
+        if Preferences.jumpToWaiting { jumpKey.register() }
+        let unavailable = Preferences.jumpToWaiting && !jumpKey.isRegistered
+        let jump = entry("Jump to waiting or finished session (⌃⌥J)" + (unavailable ? " (unavailable)" : ""), unavailable ? nil : #selector(toggleJump))
+        jump.state = Preferences.jumpToWaiting && !unavailable ? .on : .off
+        menu.addItem(jump)
+
         menu.addItem(.separator())
         menu.addItem(withTitle: "Quit Tomari", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
     }
@@ -68,7 +77,7 @@ final class MenuBar: NSObject, NSMenuDelegate {
         }
     }
 
-    private func entry(_ title: String, _ action: Selector) -> NSMenuItem {
+    private func entry(_ title: String, _ action: Selector?) -> NSMenuItem {
         let item = NSMenuItem(title: title, action: action, keyEquivalent: "")
         item.target = self
         return item
@@ -89,6 +98,11 @@ final class MenuBar: NSObject, NSMenuDelegate {
     @objc private func toggleColorByProject() {
         Preferences.colorByProject.toggle()
         strip.refresh()
+    }
+
+    @objc private func toggleJump() {
+        Preferences.jumpToWaiting.toggle()
+        if Preferences.jumpToWaiting { jumpKey.register() } else { jumpKey.unregister() }
     }
 
     @objc private func chooseEdge(_ sender: NSMenuItem) {
