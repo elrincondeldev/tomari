@@ -63,6 +63,11 @@ export interface PanelSession {
   kind?: SessionKind;
   /** Which agent runs the session; absent means Claude Code. */
   agent?: SessionAgent;
+  /**
+   * Background sessions only: whether a Terminal tab shows the session, so opening it focuses that tab
+   * instead of attaching a new one. Absent for other sessions; clients must treat absence as unknown.
+   */
+  inTab?: boolean;
 }
 
 /** A session the panel can pin, running or not: the Claude app's, Codex's, or one running in a terminal. */

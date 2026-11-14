@@ -13,7 +13,8 @@ func session(
     pinned: Bool = false,
     position: Int? = nil,
     kind: String? = nil,
-    agent: String? = nil
+    agent: String? = nil,
+    inTab: Bool? = nil
 ) -> PanelSession {
     sequence += 1
     return PanelSession(
@@ -28,6 +29,7 @@ func session(
         position: position,
         icon: .default,
         kind: kind,
-        agent: agent
+        agent: agent,
+        inTab: inTab
     )
 }

@@ -54,10 +54,12 @@ public struct PanelSession: Equatable, Identifiable, Sendable {
     public var kind: String?
     /// The coding agent running the session, such as "codex"; nil means Claude Code.
     public var agent: String?
+    /// Background sessions only: a Terminal tab shows the session. nil when the agent does not say.
+    public var inTab: Bool?
 
     public init(
         id: String, name: String, cwd: String, state: SessionState, activity: String?, live: Bool,
-        stateSince: Date, pinned: Bool, position: Int?, icon: SessionIcon, kind: String? = nil, agent: String? = nil
+        stateSince: Date, pinned: Bool, position: Int?, icon: SessionIcon, kind: String? = nil, agent: String? = nil, inTab: Bool? = nil
     ) {
         self.id = id
         self.name = name
@@ -71,12 +73,13 @@ public struct PanelSession: Equatable, Identifiable, Sendable {
         self.icon = icon
         self.kind = kind
         self.agent = agent
+        self.inTab = inTab
     }
 }
 
 extension PanelSession: Decodable {
     private enum Keys: String, CodingKey {
-        case id, name, cwd, state, activity, live, stateSince, pinned, position, icon, kind, agent
+        case id, name, cwd, state, activity, live, stateSince, pinned, position, icon, kind, agent, inTab
     }
 
     public init(from decoder: Decoder) throws {
@@ -94,7 +97,8 @@ extension PanelSession: Decodable {
             position: try c.decodeIfPresent(Int.self, forKey: .position),
             icon: try c.decode(SessionIcon.self, forKey: .icon),
             kind: try? c.decodeIfPresent(String.self, forKey: .kind),
-            agent: try? c.decodeIfPresent(String.self, forKey: .agent)
+            agent: try? c.decodeIfPresent(String.self, forKey: .agent),
+            inTab: try? c.decodeIfPresent(Bool.self, forKey: .inTab)
         )
     }
 }

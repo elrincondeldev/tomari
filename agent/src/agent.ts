@@ -1,4 +1,4 @@
-import { PANEL_PORT } from "../../shared/protocol.ts";
+import { BACKGROUND_KIND, PANEL_PORT } from "../../shared/protocol.ts";
 import { HOOK_PORT, loadConfig } from "./config.ts";
 import { watchDesktopFocus } from "./desktop-focus.ts";
 import { indexDesktopSessions } from "./desktop-sessions.ts";
@@ -10,7 +10,7 @@ import { startServers } from "./server.ts";
 import { Store } from "./store.ts";
 import { firstPrompt } from "./transcript.ts";
 import { sessionPids } from "./open-session.ts";
-import { ttyResolver, watchTerminalFocus } from "./terminal-focus.ts";
+import { sessionsInTabs, ttyResolver, watchTerminalFocus } from "./terminal-focus.ts";
 
 /** Runs until SIGINT or SIGTERM. */
 export async function runAgent() {
@@ -39,6 +39,14 @@ export async function runAgent() {
     current: () => hub.focusedId,
     // Claude Code records its pids in ~/.claude/sessions; Codex sessions are known by the pid their hooks report.
     sessionForTty: ttyResolver({ pids: async () => new Map([...(await sessionPids()), ...hub.codexPids()]) }),
+    // Which background sessions have a tab, so the overlay's jump can visit them.
+    onTabs: (titles) =>
+      hub.setTabbed(
+        sessionsInTabs(
+          titles,
+          hub.snapshot().filter((s) => s.live).map((s) => ({ id: s.id, title: hub.titleOf(s.id), background: s.kind === BACKGROUND_KIND })),
+        ),
+      ),
     // A tab on a background session runs a client whose tty is not the session's: match by the tab's title.
     sessionForTitle: (name) => {
       const matches = hub.snapshot().filter((s) => s.live && hub.titleOf(s.id) === name);
