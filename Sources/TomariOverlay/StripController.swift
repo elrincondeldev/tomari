@@ -209,6 +209,23 @@ final class StripController {
         view.slide(collapsed: collapsed)
     }
 
+    /// Opens the launcher, or closes it when it is already open.
+    func toggleLauncher() {
+        if LibraryPanel.isLaunched { return LibraryPanel.dismiss() }
+        guard link.status == .online else { return NSSound.beep() }
+        hover(nil)
+        link.requestLibrary { [weak self] entries in
+            DispatchQueue.main.async {
+                MainActor.assumeIsolated {
+                    guard let self else { return }
+                    LibraryPanel.launch(entries, onStrip: self.link.list.shown(at: Date()), now: Date()) { [link = self.link] message in
+                        link.send(message)
+                    }
+                }
+            }
+        }
+    }
+
     private func showLibrary(_ entries: [LibraryEntry]) {
         LibraryPanel.show(entries, now: Date(), beside: view.screenFrame(ofCell: shown.count), edge: edge) { [link] message in
             link.send(message)

@@ -1,12 +1,33 @@
 import Foundation
 
-/// The + menu's sessions under one agent's heading.
+/// The + menu's sessions under one agent's heading, or the launcher's sessions on the strip.
 public struct LibraryGroup: Equatable, Sendable {
-    /// "claude", "codex", or another agent's name.
+    /// "claude", "codex", another agent's name, or `LibraryGroup.onStrip`.
     public let agent: String
-    public let badge: AgentBadge
+    /// Nil for the strip's group, which holds every agent's sessions.
+    public let badge: AgentBadge?
     public let title: String
     public let entries: [LibraryEntry]
+
+    /// The launcher's first tab: the sessions on the strip.
+    public static let onStrip = "strip"
+}
+
+extension LibraryEntry {
+    /// A session on the strip, as the launcher lists it.
+    public init(_ session: PanelSession) {
+        self.init(id: session.id, name: session.name, cwd: session.cwd, lastActivityAt: session.stateSince, pinned: session.pinned, agent: session.agent)
+    }
+}
+
+extension Array where Element == PanelSession {
+    /// The order the launcher lists the strip's sessions in: those waiting for you first, the longest wait first,
+    /// then the others, the most recent change first.
+    public var launcherOrder: [PanelSession] {
+        let waiting = filter(\.needsAttention).sorted { ($0.stateSince, $0.id) < ($1.stateSince, $1.id) }
+        let others = filter { !$0.needsAttention }.sorted { $0.stateSince != $1.stateSince ? $0.stateSince > $1.stateSince : $0.id < $1.id }
+        return waiting + others
+    }
 }
 
 extension LibraryEntry {
@@ -37,9 +58,9 @@ func shortened(_ text: String, to limit: Int) -> String {
     return line.count <= limit ? line : line.prefix(limit - 1).trimmingCharacters(in: .whitespaces) + "…"
 }
 
-/// Claude Code's sessions, then Codex's, then any other agent's, each keeping the order it was given in.
-/// An agent with no sessions has no group.
-public func libraryGroups(_ entries: [LibraryEntry]) -> [LibraryGroup] {
+/// The strip's sessions when given any, in the launcher's order; then Claude Code's sessions, then Codex's, then any
+/// other agent's, each keeping the order it was given in. An agent with no sessions has no group.
+public func libraryGroups(_ entries: [LibraryEntry], onStrip: [PanelSession] = []) -> [LibraryGroup] {
     var order: [String] = ["claude", "codex"]
     var byAgent: [String: [LibraryEntry]] = [:]
     for entry in entries {
@@ -47,7 +68,8 @@ public func libraryGroups(_ entries: [LibraryEntry]) -> [LibraryGroup] {
         if !order.contains(agent) { order.append(agent) }
         byAgent[agent, default: []].append(entry)
     }
-    return order.compactMap { agent in
+    let strip = onStrip.isEmpty ? [] : [LibraryGroup(agent: LibraryGroup.onStrip, badge: nil, title: "On strip", entries: onStrip.launcherOrder.map(LibraryEntry.init))]
+    return strip + order.compactMap { agent in
         guard let entries = byAgent[agent], !entries.isEmpty else { return nil }
         let title = agent == "claude" ? "Claude" : agent == "codex" ? "Codex" : agent
         return LibraryGroup(agent: agent, badge: AgentBadge(agent: agent), title: title, entries: entries)
@@ -63,9 +85,10 @@ public struct LibraryBrowser: Equatable, Sendable {
     /// Index into `visible`; nil when nothing matches.
     public private(set) var selection: Int?
 
-    /// Opens on `preferredAgent`'s tab when it has sessions, else on the first.
-    public init(entries: [LibraryEntry], preferredAgent: String? = nil) {
-        groups = libraryGroups(entries)
+    /// Opens on `preferredAgent`'s tab when it has sessions, else on the first. `onStrip`, for the launcher, adds
+    /// a first tab with the strip's sessions.
+    public init(entries: [LibraryEntry], onStrip: [PanelSession] = [], preferredAgent: String? = nil) {
+        groups = libraryGroups(entries, onStrip: onStrip)
         tab = groups.firstIndex { $0.agent == preferredAgent } ?? 0
         selection = nil
         resetSelection()

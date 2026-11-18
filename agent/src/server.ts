@@ -205,7 +205,8 @@ export function startServers({
             if (!result.ok) send(ws, { type: "error", message: result.error });
             return;
           }
-          if (!hub.has(msg.id) && msg.type !== "open" && msg.type !== "stop") await adoptFromLibrary(msg.id);
+          // The launcher opens any session of the library, and the + pins one: both may be new to the agent.
+          if (!hub.has(msg.id) && msg.type !== "stop") await adoptFromLibrary(msg.id);
           if (!hub.has(msg.id)) return send(ws, { type: "error", message: "unknown session" });
 
           switch (msg.type) {
