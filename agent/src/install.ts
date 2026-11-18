@@ -3,13 +3,16 @@ import { existsSync } from "node:fs";
 import { mkdir, rename, rm } from "node:fs/promises";
 import { dirname } from "node:path";
 import { BIN_DIR, CLAUDE_PANEL_DB, CLAUDE_SETTINGS, DATA_DIR, DB_FILE, LOG_DIR, loadConfig, OVERLAY_DEFAULTS, PERCH } from "./config.ts";
-import { isLoaded, LEGACY_AGENT_LABEL, PERCH_LABELS, tomariJobs, plistPath, remove, start, stop } from "./launchd.ts";
+import { isLoaded, LEGACY_AGENT_LABEL, OVERLAY_APP, PERCH_LABELS, tomariJobs, plistPath, remove, start, stop } from "./launchd.ts";
 import { writeHooks } from "./settings.ts";
 import { CODEX_HOME, writeCodexHooks, type CodexHooksResult } from "./codex.ts";
 import { Store } from "./store.ts";
 
 /** What a release ships next to the `tomari` binary, and setup copies into BIN_DIR. */
-const SHIPPED = ["tomari", "tomari-overlay", "Tomari_TomariCore.bundle"];
+const SHIPPED = ["tomari", OVERLAY_APP];
+/** What releases before the app bundle shipped beside `tomari`: setup removes them. */
+const SHIPPED_BEFORE = ["tomari-overlay", "Tomari_TomariCore.bundle"];
+const LSREGISTER = "/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister";
 
 export async function setup() {
   const source = dirname(process.execPath);
@@ -26,6 +29,9 @@ export async function setup() {
   const migratedPerch = await migrateFromPerch();
 
   if (source !== BIN_DIR) await copyInto(source, BIN_DIR);
+  for (const name of SHIPPED_BEFORE) await rm(`${BIN_DIR}/${name}`, { recursive: true, force: true });
+  // Notifications need macOS to know the app; launchd starting its executable alone doesn't register it.
+  await $`${LSREGISTER} -f ${`${BIN_DIR}/${OVERLAY_APP}`}`.quiet().nothrow();
   const config = await loadConfig();
   const store = new Store(config.dbPath);
   const imported = store.importPinsFrom(CLAUDE_PANEL_DB);
@@ -107,6 +113,7 @@ async function copyInto(source: string, target: string) {
 export async function uninstall({ purge }: { purge: boolean }) {
   for (const job of tomariJobs({ binDir: BIN_DIR, logDir: LOG_DIR })) await remove(job.label);
   await $`pkill -f ${`${BIN_DIR}/`}`.quiet().nothrow();
+  await $`${LSREGISTER} -u ${`${BIN_DIR}/${OVERLAY_APP}`}`.quiet().nothrow();
   const hooksRemoved = await writeHooks({ install: false });
   const codexHooksRemoved = (await writeCodexHooks({ install: false })) === "removed";
   await rm(BIN_DIR, { recursive: true, force: true });

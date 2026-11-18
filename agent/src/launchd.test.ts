@@ -13,7 +13,7 @@ test("the agent job runs `tomari agent`", () => {
 test("the overlay job restarts after a crash but stays quit after Quit Tomari", () => {
   const [, overlay] = tomariJobs(paths);
   expect(overlay!.label).toBe("com.elrincondeldev.tomari.overlay");
-  expect(overlay!.program).toEqual([`${paths.binDir}/tomari-overlay`]);
+  expect(overlay!.program).toEqual([`${paths.binDir}/Tomari.app/Contents/MacOS/tomari-overlay`]);
   expect(overlay!.keepAlive).toBe("after-crash");
 });
 
