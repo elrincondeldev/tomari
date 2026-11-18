@@ -196,9 +196,11 @@ final class StripController {
         }
     }
 
-    /// The permission prompt a click answers, when the session waits on one and the preference is on.
+    /// The permission prompt or question a click answers, when the session waits on one and the preference is on.
+    /// Questions this version can't read are left to the session.
     private func answerable(_ session: PanelSession) -> PermissionPrompt? {
-        Preferences.answerPermissions ? session.permission : nil
+        guard Preferences.answerPermissions, let prompt = session.permission, prompt.questions?.isEmpty != true else { return nil }
+        return prompt
     }
 
     private func toggleCollapsed() {

@@ -38,19 +38,65 @@ public struct SessionIcon: Equatable, Sendable, Decodable {
     ]
 }
 
+/// One of the questions Claude asks with AskUserQuestion: answered with one of its options, or several if `multiSelect`.
+public struct PromptQuestion: Equatable, Sendable, Decodable {
+    public struct Option: Equatable, Sendable, Decodable {
+        public var label: String
+        public var description: String
+
+        public init(label: String, description: String = "") {
+            self.label = label
+            self.description = description
+        }
+    }
+
+    public var question: String
+    /// A short label, e.g. "Framework".
+    public var header: String
+    public var options: [Option]
+    public var multiSelect: Bool
+
+    public init(question: String, header: String, options: [Option], multiSelect: Bool = false) {
+        self.question = question
+        self.header = header
+        self.options = options
+        self.multiSelect = multiSelect
+    }
+}
+
 /// A permission prompt the strip can answer, while Claude Code waits on it.
 public struct PermissionPrompt: Equatable, Sendable, Decodable {
     /// Names this request in the answer.
     public var id: String
-    /// e.g. "Bash", "Edit", "mcp__github__create_issue".
+    /// e.g. "Bash", "Edit", "mcp__github__create_issue", "AskUserQuestion".
     public var tool: String
     /// What it asks to do, in full: the command, file, URL or input.
     public var detail: String
+    /// What "always allow" adds, e.g. "Bash(npm test:*) in this project"; nil when there is nothing to offer.
+    public var always: String?
+    /// For AskUserQuestion: the questions to answer, in order, instead of allowing or denying.
+    public var questions: [PromptQuestion]?
 
-    public init(id: String, tool: String, detail: String) {
+    public init(id: String, tool: String, detail: String, always: String? = nil, questions: [PromptQuestion]? = nil) {
         self.id = id
         self.tool = tool
         self.detail = detail
+        self.always = always
+        self.questions = questions
+    }
+
+    private enum Keys: String, CodingKey { case id, tool, detail, always, questions }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: Keys.self)
+        self.init(
+            id: try c.decode(String.self, forKey: .id),
+            tool: try c.decode(String.self, forKey: .tool),
+            detail: try c.decode(String.self, forKey: .detail),
+            always: try? c.decodeIfPresent(String.self, forKey: .always),
+            // Questions this version can't read leave a prompt it can only open, never answer wrongly.
+            questions: c.contains(.questions) ? ((try? c.decode([PromptQuestion].self, forKey: .questions)) ?? []) : nil
+        )
     }
 }
 
@@ -217,12 +263,13 @@ public enum ClientMessage: Equatable, Sendable {
     case stop(id: String)
     /// Sent on connect and whenever the app in front changes kind.
     case frontApp(FrontAppKind)
-    /// Answers the session's permission prompt `request`.
-    case permission(id: String, request: String, allow: Bool)
+    /// Answers the session's permission prompt `request`: `always` also adds the rule its `always` names, and
+    /// `answers`, for a prompt with questions, holds the indexes of the chosen options, per question, in order.
+    case permission(id: String, request: String, allow: Bool, always: Bool = false, answers: [[Int]]? = nil)
 
     public var sessionId: String? {
         switch self {
-        case .open(let id), .pin(let id, _), .icon(let id, _), .stop(let id), .permission(let id, _, _): return id
+        case .open(let id), .pin(let id, _), .icon(let id, _), .stop(let id), .permission(let id, _, _, _, _): return id
         case .library, .terminal, .frontApp: return nil
         }
     }
@@ -244,8 +291,11 @@ public enum ClientMessage: Equatable, Sendable {
             object = ["type": "stop", "id": id]
         case .frontApp(let kind):
             object = ["type": "frontApp", "app": kind.rawValue]
-        case .permission(let id, let request, let allow):
-            object = ["type": "permission", "id": id, "request": request, "allow": allow]
+        case .permission(let id, let request, let allow, let always, let answers):
+            var answer: [String: Any] = ["type": "permission", "id": id, "request": request, "allow": allow]
+            if always { answer["always"] = true }
+            if let answers { answer["answers"] = answers }
+            object = answer
         }
         let body = try! JSONSerialization.data(withJSONObject: object, options: [.sortedKeys])
         return String(decoding: body, as: UTF8.self)

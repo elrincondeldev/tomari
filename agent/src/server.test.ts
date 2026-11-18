@@ -553,11 +553,40 @@ test("a request answered in Claude, the session moving on, lets the hook go with
   ws.close();
 });
 
-test("a question or a plan is never held: the strip can't answer them", async () => {
+test("a plan is never held: approving it also picks a mode, which stays in Claude", async () => {
   const { ws, next } = await connect();
   await next(); // snapshot
-  const res = await postHook({ ...PERMISSION, tool_name: "AskUserQuestion", tool_input: { questions: [] } }, permissionUrl());
+  const res = await postHook({ ...PERMISSION, tool_name: "ExitPlanMode", tool_input: { plan: "# Plan" } }, permissionUrl());
   expect(res.status).toBe(204);
+  ws.close();
+});
+
+test("a question waits on the strip as needs input, and the chosen options are the hook's answers", async () => {
+  const { ws, next } = await connect();
+  await next(); // snapshot
+  const input = { questions: [{ question: "Which color?", header: "Color", options: [{ label: "Red", description: "" }, { label: "Blue", description: "" }], multiSelect: false }] };
+  const pending = postHook({ ...PERMISSION, tool_name: "AskUserQuestion", tool_input: input }, permissionUrl());
+  const session = await permissionChange(next, true);
+  expect(session).toMatchObject({ state: "needs_input", permission: { tool: "AskUserQuestion", questions: [{ question: "Which color?" }] } });
+
+  ws.send(JSON.stringify({ type: "permission", id: ID, request: session.permission!.id, allow: true, answers: [[5]] }));
+  expect(await next()).toEqual({ type: "error", message: "invalid answer" });
+  ws.send(JSON.stringify({ type: "permission", id: ID, request: session.permission!.id, allow: true, answers: [[1]] }));
+  expect(await (await pending).json()).toEqual({
+    hookSpecificOutput: { hookEventName: "PermissionRequest", decision: { behavior: "allow", updatedInput: { ...input, answers: { "Which color?": "Blue" } } } },
+  });
+  ws.close();
+});
+
+test("always allow answers with the rule Claude suggested", async () => {
+  const { ws, next } = await connect();
+  await next(); // snapshot
+  const rule = { type: "addRules", rules: [{ toolName: "Bash", ruleContent: "git push" }], behavior: "allow", destination: "localSettings" };
+  const pending = postHook({ ...PERMISSION, permission_suggestions: [rule] }, permissionUrl());
+  const session = await permissionChange(next, true);
+  expect(session.permission?.always).toBe("Bash(git push) in this project");
+  ws.send(JSON.stringify({ type: "permission", id: ID, request: session.permission!.id, allow: true, always: true }));
+  expect(await (await pending).json()).toMatchObject({ hookSpecificOutput: { decision: { behavior: "allow", updatedPermissions: [rule] } } });
   ws.close();
 });
 
