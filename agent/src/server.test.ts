@@ -162,6 +162,17 @@ test("the library lists desktop sessions, and pinning one that isn't running ado
   ws.close();
 });
 
+test("opening a library session the agent never saw, from the launcher, adopts it unpinned and opens it", async () => {
+  const { ws, next } = await connect();
+  await next(); // snapshot
+
+  ws.send(JSON.stringify({ type: "open", id: IDLE }));
+  expect(await next()).toMatchObject({ type: "session", session: { id: IDLE, name: "Idle work", pinned: false, live: false } });
+  await waitFor(() => opened.length === 1);
+  expect(opened).toEqual([[IDLE, "/Users/dev/idle", undefined, "Idle work"]]);
+  ws.close();
+});
+
 test("the library also lists live terminal sessions, newest first; the desktop entry wins a duplicate", async () => {
   const NEWER = { ...DESKTOP[0]!, localId: "local_newer", sessionId: "44444444-4444-4444-8444-444444444444", title: "Newer", lastActivityAt: Date.now() + 60_000 };
   desktopSessions = async () => [NEWER, ...DESKTOP];

@@ -82,3 +82,64 @@ func libraryTests() {
         expectEqual(browser.agent, "claude")
     }
 }
+
+func launcherTests() {
+    test("the launcher lists the strip first: waiting sessions by longest wait, then the rest by latest change") {
+        let done = session(name: "done", state: .done, stateSince: now.addingTimeInterval(-60))
+        let working = session(name: "working", state: .working, stateSince: now.addingTimeInterval(-10))
+        let asked = session(name: "asked", state: .needsInput, stateSince: now.addingTimeInterval(-30))
+        let permission = session(name: "permission", state: .needsPermission, stateSince: now.addingTimeInterval(-300), agent: "codex")
+        expectEqual([done, working, asked, permission].launcherOrder.map(\.name), ["permission", "asked", "working", "done"])
+
+        let groups = libraryGroups([entry("a"), entry("b", agent: "codex")], onStrip: [done, permission])
+        expectEqual(groups.map(\.title), ["On strip", "Claude", "Codex"])
+        expectEqual(groups[0].agent, LibraryGroup.onStrip)
+        expect(groups[0].badge == nil, "the strip's tab has no single agent")
+        expectEqual(groups[0].entries.map(\.name), ["permission", "done"])
+        expectEqual(groups[0].entries[0].agent, "codex")
+        expectEqual(groups[0].entries[0].lastActivityAt, permission.stateSince)
+        expectEqual(libraryGroups([entry("a")]).map(\.title), ["Claude"])
+    }
+
+    test("the launcher opens on the strip's tab, and the + without it") {
+        let strip = [session(name: "s", state: .working)]
+        let launcher = LibraryBrowser(entries: [entry("a")], onStrip: strip, preferredAgent: LibraryGroup.onStrip)
+        expectEqual(launcher.agent, LibraryGroup.onStrip)
+        expectEqual(launcher.selected?.name, "s")
+        let plus = LibraryBrowser(entries: [entry("a")], preferredAgent: LibraryGroup.onStrip)
+        expectEqual(plus.agent, "claude")
+        let empty = LibraryBrowser(entries: [entry("a")], onStrip: [], preferredAgent: LibraryGroup.onStrip)
+        expectEqual(empty.agent, "claude")
+    }
+}
+
+func launcherShortcutTests() {
+    let option = LauncherShortcut.option, command = LauncherShortcut.command, control = LauncherShortcut.control, shift = LauncherShortcut.shift
+
+    test("the launcher's shortcut defaults to ⌥Space, and a stored one or off is kept") {
+        expectEqual(LauncherShortcut.stored(nil), .standard)
+        expectEqual(LauncherShortcut.standard.title, "⌥Space")
+        expectEqual(LauncherShortcut.stored("off"), nil)
+        let recorded = LauncherShortcut(keyCode: 40, modifiers: control | option, key: "k")
+        expectEqual(LauncherShortcut.stored(recorded.stored), recorded)
+        expectEqual(LauncherShortcut.stored("optionSpace"), .standard) // unreadable, e.g. older
+        expectEqual(LauncherShortcut.stored(LauncherShortcut(keyCode: 0, modifiers: 0, key: "a").stored), .standard) // invalid
+    }
+
+    test("the title lists modifiers in menu order, then the key") {
+        expectEqual(LauncherShortcut(keyCode: 17, modifiers: command | option | control | shift, key: "t").title, "⌃⌥⇧⌘T")
+        expectEqual(LauncherShortcut(keyCode: 126, modifiers: control, key: "").title, "⌃↑")
+        expectEqual(LauncherShortcut(keyCode: 96, modifiers: 0, key: "").title, "F5")
+        expectEqual(LauncherShortcut(keyCode: 31, modifiers: command | 0x80, key: "o").modifiers, command) // other bits dropped
+    }
+
+    test("a shortcut needs ⌘, ⌃ or ⌥, and ⌥ alone only with a key that types nothing") {
+        expect(LauncherShortcut(keyCode: 17, modifiers: control | option, key: "t").problem == nil, "⌃⌥T")
+        expect(LauncherShortcut(keyCode: 49, modifiers: option, key: " ").problem == nil, "⌥Space")
+        expect(LauncherShortcut(keyCode: 122, modifiers: 0, key: "").problem == nil, "F1 alone")
+        expect(LauncherShortcut(keyCode: 0, modifiers: 0, key: "a").problem != nil, "a")
+        expect(LauncherShortcut(keyCode: 0, modifiers: shift, key: "a").problem != nil, "⇧A")
+        expect(LauncherShortcut(keyCode: 19, modifiers: option, key: "2").problem?.contains("types a character") == true, "⌥2 is @ in Spanish")
+        expect(LauncherShortcut(keyCode: 53, modifiers: command, key: "").problem != nil, "⌘Esc")
+    }
+}
