@@ -3,7 +3,8 @@ import TomariCore
 
 /// The + panel: one tab per agent, a search field, and the matching sessions; choosing one pins it, or unpins it
 /// when it already is. The launcher is the same panel opened by the global shortcut in the middle of the screen,
-/// with the strip's sessions as its first tab, where choosing a session opens it instead.
+/// with the strip's sessions as its first tab, where choosing a session opens it instead, and a last tab of the
+/// folders sessions ran in, where choosing one starts a new Claude Code session there (Codex with ⌥).
 /// A floating panel rather than a menu, so the search field takes typing like any other.
 /// It takes the keyboard without activating Tomari, so the app you were in stays in front, and closes when it
 /// loses the keyboard: a click elsewhere, Esc, or a choice.
@@ -34,6 +35,8 @@ final class LibraryPanel: NSObject, NSTableViewDataSource, NSTableViewDelegate, 
     private let mode: Mode
     /// The strip's sessions by id, for their status in the launcher's first tab.
     private let onStrip: [String: PanelSession]
+    /// Whether Codex has sessions here, so the New tab offers it.
+    private let hasCodex: Bool
     private let now: Date
     private let send: (ClientMessage) -> Void
     private var size: NSSize { mode == .launch ? Self.launcherSize : Self.size }
@@ -42,7 +45,7 @@ final class LibraryPanel: NSObject, NSTableViewDataSource, NSTableViewDelegate, 
     static func show(_ entries: [LibraryEntry], now: Date, beside anchor: NSRect, edge: ScreenEdge, send: @escaping (ClientMessage) -> Void) {
         current?.close()
         let preferred = Preferences.store.string(forKey: tabKey)
-        let panel = LibraryPanel(browser: LibraryBrowser(entries: entries, preferredAgent: preferred), mode: .pin, onStrip: [:], now: now, send: send)
+        let panel = LibraryPanel(browser: LibraryBrowser(entries: entries, preferredAgent: preferred), mode: .pin, onStrip: [:], hasCodex: false, now: now, send: send)
         current = panel
         panel.present(beside: anchor, edge: edge)
     }
@@ -51,9 +54,11 @@ final class LibraryPanel: NSObject, NSTableViewDataSource, NSTableViewDelegate, 
     static func launch(_ entries: [LibraryEntry], onStrip: [PanelSession], now: Date, send: @escaping (ClientMessage) -> Void) {
         current?.close()
         let preferred = onStrip.isEmpty ? Preferences.store.string(forKey: tabKey) : LibraryGroup.onStrip
-        let browser = LibraryBrowser(entries: entries, onStrip: onStrip, preferredAgent: preferred)
+        let projects = projectFolders(entries, onStrip: onStrip)
+        let browser = LibraryBrowser(entries: entries, onStrip: onStrip, projects: projects, preferredAgent: preferred)
         let byId = Dictionary(onStrip.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
-        let panel = LibraryPanel(browser: browser, mode: .launch, onStrip: byId, now: now, send: send)
+        let hasCodex = entries.contains { $0.agent == "codex" } || onStrip.contains { $0.agent == "codex" }
+        let panel = LibraryPanel(browser: browser, mode: .launch, onStrip: byId, hasCodex: hasCodex, now: now, send: send)
         current = panel
         panel.presentCentered()
     }
@@ -65,10 +70,11 @@ final class LibraryPanel: NSObject, NSTableViewDataSource, NSTableViewDelegate, 
         current?.close()
     }
 
-    private init(browser: LibraryBrowser, mode: Mode, onStrip: [String: PanelSession], now: Date, send: @escaping (ClientMessage) -> Void) {
+    private init(browser: LibraryBrowser, mode: Mode, onStrip: [String: PanelSession], hasCodex: Bool, now: Date, send: @escaping (ClientMessage) -> Void) {
         self.browser = browser
         self.mode = mode
         self.onStrip = onStrip
+        self.hasCodex = hasCodex
         self.now = now
         self.send = send
         let size = mode == .launch ? Self.launcherSize : Self.size
@@ -214,6 +220,7 @@ final class LibraryPanel: NSObject, NSTableViewDataSource, NSTableViewDelegate, 
         if !browser.groups.isEmpty { tabs.selectedSegment = browser.tab }
         table.reloadData()
         empty.stringValue = browser.groups.isEmpty ? "No sessions" : "No matches"
+        hint.stringValue = !inNewTab ? "↩ open · ⌘↩ pin" : hasCodex ? "↩ new Claude · ⌥↩ new Codex" : "↩ new Claude session"
         empty.isHidden = !browser.visible.isEmpty
         showSelection()
     }
@@ -253,11 +260,17 @@ final class LibraryPanel: NSObject, NSTableViewDataSource, NSTableViewDelegate, 
         send(.terminal)
     }
 
-    /// Pins the selected session, or unpins it, and closes; the launcher opens it instead, unless ⌘ is down.
+    private var inNewTab: Bool { browser.agent == LibraryGroup.newSession }
+
+    /// Pins the selected session, or unpins it, and closes; the launcher opens it instead, unless ⌘ is down. In the
+    /// launcher's New tab it starts a session in the selected folder: Claude Code, or Codex with ⌥.
     private func choose() {
         guard let entry = browser.selected else { return }
         close()
-        if mode == .launch && !(NSApp.currentEvent?.modifierFlags.contains(.command) ?? false) {
+        let flags = NSApp.currentEvent?.modifierFlags ?? []
+        if inNewTab {
+            send(.newSession(cwd: entry.cwd, agent: hasCodex && flags.contains(.option) ? "codex" : "claude"))
+        } else if mode == .launch && !(NSApp.currentEvent?.modifierFlags.contains(.command) ?? false) {
             send(.open(id: entry.id))
         } else {
             send(.pin(id: entry.id, pinned: !entry.pinned))
@@ -266,7 +279,7 @@ final class LibraryPanel: NSObject, NSTableViewDataSource, NSTableViewDelegate, 
 
     /// The agent's tab the + opens on next time; the launcher's strip tab isn't one.
     private func rememberTab() {
-        if let agent = browser.agent, agent != LibraryGroup.onStrip { Preferences.store.set(agent, forKey: Self.tabKey) }
+        if let agent = browser.agent, agent != LibraryGroup.onStrip, agent != LibraryGroup.newSession { Preferences.store.set(agent, forKey: Self.tabKey) }
     }
 
     func controlTextDidChange(_ obj: Notification) {
@@ -283,7 +296,7 @@ final class LibraryPanel: NSObject, NSTableViewDataSource, NSTableViewDelegate, 
             rememberTab()
             refresh()
             return true
-        case #selector(NSResponder.insertNewline(_:)):
+        case #selector(NSResponder.insertNewline(_:)), #selector(NSResponder.insertNewlineIgnoringFieldEditor(_:)): // ⌥↩ is the latter
             choose()
             return true
         case #selector(NSResponder.cancelOperation(_:)):
@@ -309,7 +322,7 @@ final class LibraryPanel: NSObject, NSTableViewDataSource, NSTableViewDelegate, 
     func tableView(_ tableView: NSTableView, viewFor tableColumn: NSTableColumn?, row: Int) -> NSView? {
         let entry = browser.visible[row]
         let cell = (tableView.makeView(withIdentifier: SessionRow.identifier, owner: nil) as? SessionRow) ?? SessionRow()
-        cell.show(entry, now: now, status: browser.agent == LibraryGroup.onStrip ? onStrip[entry.id] : nil)
+        cell.show(entry, now: now, status: browser.agent == LibraryGroup.onStrip ? onStrip[entry.id] : nil, folderRow: inNewTab)
         return cell
     }
 
@@ -450,9 +463,13 @@ private final class SessionRow: NSTableCellView {
     }
 
     /// With the session's `status`, in the launcher's strip tab, the detail is what it is doing instead of when.
-    func show(_ entry: LibraryEntry, now: Date, status: PanelSession? = nil) {
+    /// A `folderRow`, in the launcher's New tab, shows the folder's path instead of its name again.
+    func show(_ entry: LibraryEntry, now: Date, status: PanelSession? = nil, folderRow: Bool = false) {
         name.stringValue = entry.name
-        if let status {
+        if folderRow {
+            detail.stringValue = "\((entry.cwd as NSString).abbreviatingWithTildeInPath) · \(ago(since: entry.lastActivityAt, now: now))"
+            waiting = false
+        } else if let status {
             detail.stringValue = "\(entry.folder) · \(status.statusLine(at: now))"
             waiting = status.needsAttention
         } else {

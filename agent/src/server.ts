@@ -3,11 +3,12 @@
  * Keeping them apart means a panel client can never inject hook events.
  */
 import { timingSafeEqual } from "node:crypto";
+import { stat } from "node:fs/promises";
 import { basename } from "node:path";
 import { BACKGROUND_KIND, type LibraryEntry, type ServerMessage } from "../../shared/protocol.ts";
 import { desktopSessionsLister, type DesktopSession } from "./desktop-sessions.ts";
 import type { SessionHub } from "./hub.ts";
-import { openSession, openTerminalTab, type OpenOptions, type OpenResult } from "./open-session.ts";
+import { openSession, openTerminalTab, planNew, run, type OpenOptions, type OpenResult } from "./open-session.ts";
 import { parseClientMessage } from "./protocol-guard.ts";
 import { stopSession } from "./stop-session.ts";
 import type { HookEvent, HookOrigin } from "./state.ts";
@@ -26,6 +27,8 @@ export interface ServerOptions {
   /** Replaceable so tests don't open real sessions or tabs, or read the real desktop app. */
   open?: (id: string, options?: OpenOptions) => Promise<OpenResult>;
   terminal?: () => Promise<OpenResult>;
+  /** Starts a new session in a folder; replaceable so tests don't open the desktop app or Terminal. */
+  newSession?: (cwd: string, agent: "claude" | "codex") => Promise<OpenResult>;
   stop?: (id: string) => Promise<OpenResult>;
   desktopSessions?: () => Promise<DesktopSession[]>;
   /** Maps the pid a Codex hook reports to the Codex process; replaceable so tests don't run `ps`. */
@@ -51,6 +54,7 @@ export function startServers({
   panelPort,
   open = openSession,
   terminal = openTerminalTab,
+  newSession = (cwd, agent) => run(planNew(cwd, agent)),
   stop = stopSession,
   desktopSessions = desktopSessionsLister(),
   codexPid = codexPidResolver(),
@@ -200,6 +204,15 @@ export function startServers({
             }
             return;
           }
+          if (msg.type === "new") {
+            // Only where a session ran: the launcher lists those folders, and nothing else needs to start one.
+            const known = hub.snapshot().some((s) => s.cwd === msg.cwd) || (await library()).some((e) => e.cwd === msg.cwd);
+            if (!known || !(await isDirectory(msg.cwd))) return send(ws, { type: "error", message: "unknown folder" });
+            const result = await newSession(msg.cwd, msg.agent === "codex" ? "codex" : "claude");
+            console.error(`new ${msg.agent} session: ${result.ok ? "ok" : (result.error.split("\n")[0] ?? "").replace(/\S*\/\S*/g, "<path>").slice(0, 120)}`);
+            if (!result.ok) send(ws, { type: "error", message: result.error });
+            return;
+          }
           if (msg.type === "terminal") {
             const result = await terminal();
             if (!result.ok) send(ws, { type: "error", message: result.error });
@@ -291,6 +304,10 @@ export function openLogLine(id: string, result: OpenResult, ms?: number): string
 
 function send(ws: { send(data: string): unknown }, message: ServerMessage) {
   ws.send(JSON.stringify(message));
+}
+
+async function isDirectory(path: string) {
+  return (await stat(path).catch(() => null))?.isDirectory() ?? false;
 }
 
 /** Constant-time, so response timing doesn't leak the token. */

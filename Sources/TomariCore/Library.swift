@@ -11,6 +11,21 @@ public struct LibraryGroup: Equatable, Sendable {
 
     /// The launcher's first tab: the sessions on the strip.
     public static let onStrip = "strip"
+    /// The launcher's last tab: the folders sessions ran in, to start a new one there.
+    public static let newSession = "new"
+}
+
+/// The folders sessions ran in, each once, the most recently used first: where the launcher starts new sessions.
+/// Each is an entry named after its folder, with the folder as its id.
+public func projectFolders(_ entries: [LibraryEntry], onStrip: [PanelSession] = [], limit: Int = 60) -> [LibraryEntry] {
+    var latest: [String: Date] = [:]
+    for entry in entries + onStrip.map(LibraryEntry.init) where entry.cwd.hasPrefix("/") {
+        latest[entry.cwd] = max(latest[entry.cwd] ?? .distantPast, entry.lastActivityAt)
+    }
+    return latest
+        .sorted { $0.value != $1.value ? $0.value > $1.value : $0.key < $1.key }
+        .prefix(limit)
+        .map { LibraryEntry(id: $0.key, name: ($0.key as NSString).lastPathComponent, cwd: $0.key, lastActivityAt: $0.value, pinned: false) }
 }
 
 extension LibraryEntry {
@@ -59,8 +74,9 @@ func shortened(_ text: String, to limit: Int) -> String {
 }
 
 /// The strip's sessions when given any, in the launcher's order; then Claude Code's sessions, then Codex's, then any
-/// other agent's, each keeping the order it was given in. An agent with no sessions has no group.
-public func libraryGroups(_ entries: [LibraryEntry], onStrip: [PanelSession] = []) -> [LibraryGroup] {
+/// other agent's, each keeping the order it was given in; then `projects`, the launcher's folders for a new
+/// session, when given any. An agent with no sessions has no group.
+public func libraryGroups(_ entries: [LibraryEntry], onStrip: [PanelSession] = [], projects: [LibraryEntry] = []) -> [LibraryGroup] {
     var order: [String] = ["claude", "codex"]
     var byAgent: [String: [LibraryEntry]] = [:]
     for entry in entries {
@@ -69,11 +85,12 @@ public func libraryGroups(_ entries: [LibraryEntry], onStrip: [PanelSession] = [
         byAgent[agent, default: []].append(entry)
     }
     let strip = onStrip.isEmpty ? [] : [LibraryGroup(agent: LibraryGroup.onStrip, badge: nil, title: "On strip", entries: onStrip.launcherOrder.map(LibraryEntry.init))]
+    let new = projects.isEmpty ? [] : [LibraryGroup(agent: LibraryGroup.newSession, badge: nil, title: "New", entries: projects)]
     return strip + order.compactMap { agent in
         guard let entries = byAgent[agent], !entries.isEmpty else { return nil }
         let title = agent == "claude" ? "Claude" : agent == "codex" ? "Codex" : agent
         return LibraryGroup(agent: agent, badge: AgentBadge(agent: agent), title: title, entries: entries)
-    }
+    } + new
 }
 
 /// What the + panel shows: one tab per agent, the sessions of the chosen tab that match the search, and which of
@@ -86,9 +103,9 @@ public struct LibraryBrowser: Equatable, Sendable {
     public private(set) var selection: Int?
 
     /// Opens on `preferredAgent`'s tab when it has sessions, else on the first. `onStrip`, for the launcher, adds
-    /// a first tab with the strip's sessions.
-    public init(entries: [LibraryEntry], onStrip: [PanelSession] = [], preferredAgent: String? = nil) {
-        groups = libraryGroups(entries, onStrip: onStrip)
+    /// a first tab with the strip's sessions, and `projects` a last one with folders to start a new session in.
+    public init(entries: [LibraryEntry], onStrip: [PanelSession] = [], projects: [LibraryEntry] = [], preferredAgent: String? = nil) {
+        groups = libraryGroups(entries, onStrip: onStrip, projects: projects)
         tab = groups.firstIndex { $0.agent == preferredAgent } ?? 0
         selection = nil
         resetSelection()

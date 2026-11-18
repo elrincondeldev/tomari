@@ -109,5 +109,6 @@ export type ClientMessage =
   | { type: "icon"; id: string; icon: SessionIcon } // pins the session if it isn't yet
   | { type: "library" }
   | { type: "terminal" } // opens a shell in a new Terminal.app tab, without Claude
+  | { type: "new"; cwd: string; agent: SessionAgent } // starts a session of `agent` ("claude" or "codex") in a folder some session ran in
   | { type: "permission"; id: string; request: string; allow: boolean } // answers the session's permission prompt `request`
   | { type: "frontApp"; app: FrontApp }; // sent on connect and when the app in front changes, so the agent asks Terminal only while it is in front

@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
-import { openSession, openTerminalTab, planOpen, RELEASE_DESKTOP_FOCUS, REFOCUS_DELAY_MS, run, sessionPids, type OpenResult } from "./open-session.ts";
+import { openSession, openTerminalTab, planNew, planOpen, RELEASE_DESKTOP_FOCUS, REFOCUS_DELAY_MS, run, sessionPids, type OpenResult } from "./open-session.ts";
 
 const ID = "0603472f-b7c5-4dae-b7a1-142468264b30";
 const CLOSED = "22222222-2222-4222-8222-222222222222"; // not running
@@ -213,4 +213,18 @@ test("the session the desktop app already counts as focused goes through needs-i
   ran.length = 0;
   await openSession(ID, { liveDir, desktopDir }, runner, async () => {});
   expect(ran).toEqual([link]);
+});
+
+test("a new Claude session starts in the desktop app when it is installed, else in Terminal, like Codex; the folder is only an argument", () => {
+  const folder = "/Users/dev/my app; rm -rf ~";
+  const desktop = planNew(folder, "claude", true);
+  expect(desktop.slice(0, 3)).toEqual(["/bin/sh", "-c", 'cd "$1" && exec claude --desktop']);
+  expect(desktop.slice(3)).toEqual(["sh", folder]);
+  for (const [agent, hasDesktop] of [["claude", false], ["codex", true]] as const) {
+    const command = planNew(folder, agent, hasDesktop);
+    expect(command[0]).toBe("osascript");
+    expect(command.slice(-2)).toEqual([folder, agent]);
+    expect(command[2]).not.toContain(folder);
+    expect(command[2]).toContain("quoted form of (item 1 of argv)");
+  }
 });

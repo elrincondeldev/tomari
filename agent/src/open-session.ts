@@ -115,6 +115,9 @@ const RESUME_CODEX_IN_TERMINAL = inTerminal(
   `"cd " & quoted form of (item 1 of argv) & " && codex resume " & quoted form of (item 2 of argv)`,
 );
 
+// Starts a new session in a folder: argv is the folder, then the agent's command, `claude` or `codex`.
+const NEW_IN_TERMINAL = inTerminal(`"cd " & quoted form of (item 1 of argv) & " && " & (item 2 of argv)`);
+
 const ATTACH_COMMAND = `"claude attach " & quoted form of (item 1 of argv)`;
 
 // Attaches to a background session: argv is its id.
@@ -311,6 +314,16 @@ export async function openSession(
     await sleep(REFOCUS_DELAY_MS);
   }
   return runner(plan.command);
+}
+
+/**
+ * The command that starts a new session of `agent` in `cwd`: Claude Code in the desktop app when it is installed,
+ * as sessions open there; otherwise, and for Codex, in a new Terminal tab. The folder reaches the command as an
+ * argument only.
+ */
+export function planNew(cwd: string, agent: "claude" | "codex", desktop = hasDesktopApp()): string[] {
+  if (agent === "claude" && desktop) return ["/bin/sh", "-c", 'cd "$1" && exec claude --desktop', "sh", cwd];
+  return ["osascript", "-e", NEW_IN_TERMINAL, cwd, agent];
 }
 
 /** Opens a shell, without Claude, in a new Terminal.app tab (a window unless macOS prefers tabs). `runner` is replaceable for tests. */

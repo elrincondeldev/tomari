@@ -413,6 +413,14 @@ describe("parseClientMessage", () => {
     expect(parseClientMessage(JSON.stringify({ type: "permission", id: A, allow: false }))).toBeNull();
   });
 
+  test("new takes an absolute folder and Claude or Codex", () => {
+    expect(parseClientMessage(JSON.stringify({ type: "new", cwd: "/repo", agent: "codex", extra: 1 }))).toEqual({ type: "new", cwd: "/repo", agent: "codex" });
+    expect(parseClientMessage(JSON.stringify({ type: "new", cwd: "repo", agent: "claude" }))).toBeNull();
+    expect(parseClientMessage(JSON.stringify({ type: "new", cwd: "/repo", agent: "gemini" }))).toBeNull();
+    expect(parseClientMessage(JSON.stringify({ type: "new", cwd: `/${"x".repeat(2000)}`, agent: "claude" }))).toBeNull();
+    expect(parseClientMessage(JSON.stringify({ type: "new", agent: "claude" }))).toBeNull();
+  });
+
   test("terminal takes no arguments: anything else sent with it is dropped", () => {
     expect(parseClientMessage(JSON.stringify({ type: "terminal" }))).toEqual({ type: "terminal" });
     expect(parseClientMessage(JSON.stringify({ type: "terminal", command: "rm -rf ~", id: A }))).toEqual({ type: "terminal" });

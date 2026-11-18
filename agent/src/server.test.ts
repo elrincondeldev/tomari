@@ -28,10 +28,12 @@ let stop: (id: string) => Promise<OpenResult>;
 let desktopSessions: () => Promise<DesktopSession[]>;
 let terminal: () => Promise<OpenResult>;
 let codexLibrary: () => Promise<CodexThread[]>;
+let started: [cwd: string, agent: string][];
 
 beforeEach(() => {
   opened = [];
   stopped = [];
+  started = [];
   stop = async (id) => {
     stopped.push(id);
     return { ok: true, command: ["fake-stop", id] };
@@ -57,6 +59,10 @@ beforeEach(() => {
     codexPid: async (reported) => (reported === 4242 ? 4200 : null),
     admitCodex: async (event) => event.hook_event_name !== "SessionStart",
     codexLibrary: () => codexLibrary(),
+    newSession: async (cwd, agent) => {
+      started.push([cwd, agent]);
+      return { ok: true, command: ["fake-new", cwd, agent] };
+    },
   });
 });
 afterEach(() => servers.stop());
@@ -579,4 +585,27 @@ test("a request no one answers times out with no decision", async () => {
   expect((await postHook(PERMISSION, permissionUrl())).status).toBe(204);
   expect(Date.now() - started).toBeLessThan(1000);
   ws.close();
+});
+
+test("a new session starts only in a folder some session ran in, and only one that still exists", async () => {
+  const folder = mkdtempSync(`${tmpdir()}/tomari-new-`);
+  try {
+    desktopSessions = async () => [{ ...DESKTOP[0]!, cwd: folder }];
+    const { ws, next } = await connect();
+    await next(); // snapshot
+    ws.send(JSON.stringify({ type: "new", cwd: folder, agent: "codex" }));
+    ws.send(JSON.stringify({ type: "new", cwd: "/etc", agent: "claude" }));
+    expect(await next()).toEqual({ type: "error", message: "unknown folder" });
+    expect(started).toEqual([[folder, "codex"]]);
+
+    rmSync(folder, { recursive: true });
+    ws.send(JSON.stringify({ type: "new", cwd: folder, agent: "claude" }));
+    expect(await next()).toEqual({ type: "error", message: "unknown folder" });
+    ws.send(JSON.stringify({ type: "new", cwd: "relative/path", agent: "claude" }));
+    expect(await next()).toEqual({ type: "error", message: "invalid message" });
+    expect(started).toHaveLength(1);
+    ws.close();
+  } finally {
+    rmSync(folder, { recursive: true, force: true });
+  }
 });
