@@ -37,6 +37,7 @@ You need the Claude desktop app (sessions in its Code tab), the Claude Code CLI 
 - **The sessions you choose**: the **+** at the end of the strip lists every session in the Claude desktop app and every Codex thread, recent or old, running or stopped, plus the running sessions Tomari sees in your terminals, in a panel with a **Claude** and a **Codex** tab; pick one to pin it, or unpin it. Type to filter by name or folder (accents and case don't matter; each tab's count shows its matches), ↑↓ to move, Tab to switch tabs, Return to pin and Esc to close. The panel takes the keyboard without bringing Tomari to the front, and closes when you click elsewhere. Its last item, **New Terminal tab**, opens a plain shell in Terminal.app, without Claude: a tab of the front window when macOS is set to prefer tabs, a new window otherwise. Sessions you haven't pinned show up only while they work or wait for you, and for five minutes after they finish, so a fresh install starts with just the +.
 - **One creature per session**, animated by its state: working, needs permission, asking you, compacting, done, error or closed. Finished sessions fall asleep after five minutes.
 - **Hard to miss when it needs you**: a permission request blinks the creature's tile in orange; a question rings it in orange. A working creature hops with typing dots over its head, and one that finished its turn holds up a green check, ringed in green, until you reply or it falls asleep.
+- **Answer permissions from the strip**: click a Claude Code session waiting for permission to see what it asks, in full (the command, file, URL or input), and **Allow** (Return) or **Deny** it without leaving the app you are in; **Open** takes you to the session instead, and Esc closes the card without answering. Claude keeps its own dialog up meanwhile, in the terminal or the desktop app, and whichever you answer first wins. It allows once only: never "always allow", which stays in Claude. Questions and plans to review still open the session, since they need more than yes or no. On by default; turn it off from the menu bar icon to make that click open the session as before. Not for Codex, which asks its hooks before it shows its own approval, so waiting there would hide it.
 - **Hover** for the session's name, agent and status, e.g. `Bash: npm test · 4m` or `done · 5m`; while a session works or waits, the time is how long it has been in that state (`waiting for you · 2m`, `working · 1h 5m`).
 - **Click** to open the session in the Claude desktop app, even one the app has stopped. A session running in Terminal.app brings its tab to the front instead. Without the desktop app, a closed session resumes with `claude --resume` in a new Terminal tab, in the folder where it ran. The session in front is ringed in white.
 - **Which session is in front**: while Terminal is in front, the selected Terminal tab decides; while the Claude desktop app is in front, the session it shows does; with any other app in front the ring stays where it was. The first time Terminal is in front, macOS asks to let Tomari control Terminal, which it uses to read which tab is selected; Tomari doesn't ask Terminal anything while another app is in front.
@@ -65,6 +66,7 @@ claude agents ─ poll ─▶  └ SQLite: pins, icons
 | What the agent reads from Claude | Used for | Documented? |
 |---|---|---|
 | Hooks in `~/.claude/settings.json` | Instant state changes | Yes |
+| The `PermissionRequest` hook's decision | Allowing or denying from the strip; Claude runs the hook alongside its own dialog and takes the first answer | Yes, but running alongside the terminal's dialog isn't |
 | `claude agents --json` | Names, who is alive, corrections for missed hooks | Yes |
 | `claude --desktop --resume <id>` | Opening a session the desktop app doesn't know; without the app, `claude --resume <id>` in a new Terminal tab | Yes |
 | `claude://code/continue?session=local_…` | Opening any desktop-app session, running or stopped | No |
@@ -140,10 +142,11 @@ On Vercel, import the repository and set its Root Directory to `site`; Vercel de
 ## Privacy
 
 - Everything stays on your Mac: the overlay only talks to the agent on 127.0.0.1, and the agent only listens there. No telemetry.
-- The WebSocket needs the pairing token in `~/Library/Application Support/tomari/config.json`, and accepts only `open`, `pin`, `icon`, `stop`, `library`, `terminal` and `frontApp` (which of Terminal, the Claude desktop app or another app is in front, nothing more), with validated arguments.
+- The WebSocket needs the pairing token in `~/Library/Application Support/tomari/config.json`, and accepts only `open`, `pin`, `icon`, `stop`, `library`, `terminal`, `frontApp` (which of Terminal, the Claude desktop app or another app is in front, nothing more) and `permission` (allow or deny one held request, by its id), with validated arguments. A permission request is held only while the overlay is connected, and gets no decision from Tomari when it disconnects, the session moves on, or after ten minutes.
 - Tomari keeps its data in `~/Library/Application Support/tomari/`, its logs in `~/Library/Logs/tomari/`, and the strip's edge in the `com.elrincondeldev.tomari` defaults.
 - When several untitled sessions share a folder name, the strip tells them apart with the first 24 characters of each one's first prompt. It is kept in memory only, never written to disk, but it is visible on screen like the hover label below.
 - The hover label can show tool details such as a shell command, so anyone who can see your screen can read them.
+- The permission card shows the full command or input a session asks to run, kept in memory only, like the hover label.
 
 ## Roadmap
 

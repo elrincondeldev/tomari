@@ -495,3 +495,88 @@ test("the library keeps up to 100 sessions per agent, so many of one never crowd
   expect(reply.sessions.some((s) => s.id === IDLE)).toBe(true); // the older Claude session is still there
   ws.close();
 });
+
+const permissionUrl = () => `${hookUrl()}/permission`;
+const PERMISSION = { hook_event_name: "PermissionRequest", session_id: ID, cwd: "/tmp/demo", tool_name: "Bash", tool_input: { command: "git push", description: "Push" } };
+
+/** The next session message for ID whose permission is present (`true`) or absent (`false`). */
+async function permissionChange(next: () => Promise<ServerMessage>, present: boolean) {
+  for (;;) {
+    const msg = await next();
+    if (msg.type === "session" && msg.session.id === ID && (msg.session.permission !== undefined) === present) return msg.session;
+  }
+}
+
+test("with no panel connected, a permission request gets no decision at once", async () => {
+  const res = await postHook(PERMISSION, permissionUrl());
+  expect(res.status).toBe(204);
+  expect(hub.has(ID)).toBe(false);
+});
+
+test("a permission request waits on the strip, and its answer is the hook's decision", async () => {
+  const { ws, next } = await connect();
+  await next(); // snapshot
+  const pending = postHook(PERMISSION, permissionUrl());
+  const session = await permissionChange(next, true);
+  expect(session).toMatchObject({ state: "needs_permission", permission: { tool: "Bash", detail: "git push" } });
+
+  ws.send(JSON.stringify({ type: "permission", id: ID, request: session.permission!.id, allow: true }));
+  const res = await pending;
+  expect(res.status).toBe(200);
+  expect(await res.json()).toEqual({ hookSpecificOutput: { hookEventName: "PermissionRequest", decision: { behavior: "allow" } } });
+  await permissionChange(next, false);
+
+  ws.send(JSON.stringify({ type: "permission", id: ID, request: session.permission!.id, allow: false }));
+  expect(await next()).toEqual({ type: "error", message: "already answered" });
+  ws.close();
+});
+
+test("a denial is the hook's decision too", async () => {
+  const { ws, next } = await connect();
+  await next(); // snapshot
+  const pending = postHook(PERMISSION, permissionUrl());
+  const session = await permissionChange(next, true);
+  ws.send(JSON.stringify({ type: "permission", id: ID, request: session.permission!.id, allow: false }));
+  expect(await (await pending).json()).toMatchObject({ hookSpecificOutput: { decision: { behavior: "deny" } } });
+  ws.close();
+});
+
+test("a request answered in Claude, the session moving on, lets the hook go with no decision", async () => {
+  const { ws, next } = await connect();
+  await next(); // snapshot
+  const pending = postHook(PERMISSION, permissionUrl());
+  await permissionChange(next, true);
+  await postHook({ hook_event_name: "Notification", session_id: ID, cwd: "/tmp/demo", notification_type: "permission_prompt" });
+  await postHook({ hook_event_name: "PostToolUse", session_id: ID, cwd: "/tmp/demo", tool_name: "Bash", tool_input: { command: "git push" } });
+  expect((await pending).status).toBe(204);
+  await permissionChange(next, false);
+  ws.close();
+});
+
+test("a question or a plan is never held: the strip can't answer them", async () => {
+  const { ws, next } = await connect();
+  await next(); // snapshot
+  const res = await postHook({ ...PERMISSION, tool_name: "AskUserQuestion", tool_input: { questions: [] } }, permissionUrl());
+  expect(res.status).toBe(204);
+  ws.close();
+});
+
+test("when the last panel disconnects, held requests get no decision", async () => {
+  const { ws, next } = await connect();
+  await next(); // snapshot
+  const pending = postHook(PERMISSION, permissionUrl());
+  await permissionChange(next, true);
+  ws.close();
+  expect((await pending).status).toBe(204);
+});
+
+test("a request no one answers times out with no decision", async () => {
+  servers.stop();
+  servers = startServers({ hub, token: TOKEN, hookPort: 0, panelPort: 0, permissionHoldMs: 50, desktopSessions: async () => [], codexLibrary: async () => [] });
+  const { ws, next } = await connect();
+  await next(); // snapshot
+  const started = Date.now();
+  expect((await postHook(PERMISSION, permissionUrl())).status).toBe(204);
+  expect(Date.now() - started).toBeLessThan(1000);
+  ws.close();
+});

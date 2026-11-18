@@ -400,6 +400,19 @@ describe("parseClientMessage", () => {
     });
   });
 
+  test("permission takes a session, a request id and a boolean, nothing else", () => {
+    const R = "11111111-1111-4111-8111-111111111111";
+    expect(parseClientMessage(JSON.stringify({ type: "permission", id: A, request: R, allow: true, always: true }))).toEqual({
+      type: "permission",
+      id: A,
+      request: R,
+      allow: true,
+    });
+    expect(parseClientMessage(JSON.stringify({ type: "permission", id: A, request: R, allow: "yes" }))).toBeNull();
+    expect(parseClientMessage(JSON.stringify({ type: "permission", id: A, request: "x", allow: false }))).toBeNull();
+    expect(parseClientMessage(JSON.stringify({ type: "permission", id: A, allow: false }))).toBeNull();
+  });
+
   test("terminal takes no arguments: anything else sent with it is dropped", () => {
     expect(parseClientMessage(JSON.stringify({ type: "terminal" }))).toEqual({ type: "terminal" });
     expect(parseClientMessage(JSON.stringify({ type: "terminal", command: "rm -rf ~", id: A }))).toEqual({ type: "terminal" });
@@ -425,6 +438,20 @@ describe("parseClientMessage", () => {
     ];
     for (const raw of bad) expect(parseClientMessage(raw)).toBeNull();
   });
+});
+
+test("a session shows the permission prompt the strip can answer until it is cleared", () => {
+  const { hub, changes } = setup();
+  hub.handleHook(ev(A, "UserPromptSubmit"));
+  const prompt = { id: "p", tool: "Bash", detail: "git push" };
+  hub.setPermission(A, prompt);
+  expect(hub.get(A)!.permission).toEqual(prompt);
+  const count = changes.length;
+  hub.setPermission(A, null);
+  expect(hub.get(A)!.permission).toBeUndefined();
+  expect(changes.length).toBe(count + 1);
+  hub.setPermission(A, null); // nothing to clear: no message
+  expect(changes.length).toBe(count + 1);
 });
 
 describe("Codex sessions", () => {

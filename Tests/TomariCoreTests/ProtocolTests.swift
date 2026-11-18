@@ -82,6 +82,7 @@ func protocolTests() {
         expectEqual(try object(.terminal), ["type": "terminal"])
         expectEqual(try object(.stop(id: "abc")), ["type": "stop", "id": "abc"])
         expectEqual(try object(.pin(id: "abc", pinned: true)), ["type": "pin", "id": "abc", "pinned": true])
+        expectEqual(try object(.permission(id: "abc", request: "r1", allow: false)), ["type": "permission", "id": "abc", "request": "r1", "allow": false])
         expectEqual(
             try object(.icon(id: "abc", icon: SessionIcon(character: "cat", color: "#4f7cff"))),
             ["type": "icon", "id": "abc", "icon": ["character": "cat", "color": "#4f7cff"]]
@@ -90,7 +91,7 @@ func protocolTests() {
 
     test("client messages name their session, except the library and terminal requests") {
         let icon = SessionIcon.default
-        for message in [ClientMessage.open(id: "a"), .pin(id: "a", pinned: false), .icon(id: "a", icon: icon), .stop(id: "a")] {
+        for message in [ClientMessage.open(id: "a"), .pin(id: "a", pinned: false), .icon(id: "a", icon: icon), .stop(id: "a"), .permission(id: "a", request: "r", allow: true)] {
             expectEqual(message.sessionId, "a")
         }
         expectEqual(ClientMessage.library.sessionId, nil)
@@ -115,6 +116,19 @@ func protocolTests() {
         }
         expectEqual(a.agent, "codex")
         expectEqual(b.agent, nil)
+    }
+
+    test("decodes the permission prompt the strip can answer; one it can't read is left out, not the session") {
+        let asking = sessionJSON.replacingOccurrences(of: #""icon":"#, with: #""permission":{"id":"r1","tool":"Bash","detail":"git push"},"icon":"#)
+        let odd = sessionJSON.replacingOccurrences(of: #""icon":"#, with: #""permission":{"id":42},"icon":"#)
+        guard case .session(let a)? = ServerMessage.parse(#"{"type":"session","session":\#(asking)}"#),
+              case .session(let b)? = ServerMessage.parse(#"{"type":"session","session":\#(odd)}"#),
+              case .session(let c)? = ServerMessage.parse(#"{"type":"session","session":\#(sessionJSON)}"#) else {
+            return expect(false, "not a session message")
+        }
+        expectEqual(a.permission, PermissionPrompt(id: "r1", tool: "Bash", detail: "git push"))
+        expectEqual(b.permission, nil)
+        expectEqual(c.permission, nil)
     }
 
     test("the hover name says which agent runs the session") {

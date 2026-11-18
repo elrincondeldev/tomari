@@ -41,6 +41,16 @@ export type SessionAgent = "claude" | "codex" | (string & {});
 /** Sessions of an agent other than Claude Code start as this character, so they stand apart on the strip. */
 export const CODEX_ICON: SessionIcon = { character: "robot", color: DEFAULT_ICON.color };
 
+/** A permission prompt the strip can answer, while Claude Code waits on it. */
+export interface PermissionPrompt {
+  /** Names this request in the answer; a new id for each request. */
+  id: string;
+  /** e.g. "Bash", "Edit", "mcp__github__create_issue". */
+  tool: string;
+  /** What it asks to do, in full: the command, file, URL or input. */
+  detail: string;
+}
+
 export interface PanelSession {
   id: string;
   name: string;
@@ -63,6 +73,8 @@ export interface PanelSession {
   kind?: SessionKind;
   /** Which agent runs the session; absent means Claude Code. */
   agent?: SessionAgent;
+  /** The permission prompt it waits on that the strip can answer; absent when none. */
+  permission?: PermissionPrompt;
 }
 
 /** A session the panel can pin, running or not: the Claude app's, Codex's, or one running in a terminal. */
@@ -97,4 +109,5 @@ export type ClientMessage =
   | { type: "icon"; id: string; icon: SessionIcon } // pins the session if it isn't yet
   | { type: "library" }
   | { type: "terminal" } // opens a shell in a new Terminal.app tab, without Claude
+  | { type: "permission"; id: string; request: string; allow: boolean } // answers the session's permission prompt `request`
   | { type: "frontApp"; app: FrontApp }; // sent on connect and when the app in front changes, so the agent asks Terminal only while it is in front

@@ -84,6 +84,8 @@ final class StripController {
         guard current.map(\.id) == shown.map(\.id) else { return relayout() }
         shown = current
 
+        PermissionCard.sync(with: link.list.sessions)
+
         let frame = Int(now.timeIntervalSinceReferenceDate * Self.framesPerSecond)
         if !collapsed {
             let focusedId = link.list.focusedId
@@ -116,7 +118,8 @@ final class StripController {
             guard let index = shown.firstIndex(where: { $0.id == id }) else { return nil }
             let session = shown[index]
             let color = failure != nil ? failed : session.needsAttention ? NSColor(paint: .accent) : Style.muted
-            return content(session.hoverName, failure ?? session.statusLine(at: now), color, beside: layout.cellFrame(index, in: strip))
+            let status = answerable(session) != nil ? "\(session.statusLine(at: now)) · click to answer" : session.statusLine(at: now)
+            return content(session.hoverName, failure ?? status, color, beside: layout.cellFrame(index, in: strip))
         case .add:
             let status = failure ?? "pin any session from the Claude app"
             return content("Add a session", status, failure != nil ? failed : Style.muted, beside: layout.cellFrame(shown.count, in: strip))
@@ -172,7 +175,14 @@ final class StripController {
         guard case .cell(let index) = hit else { return toggleCollapsed() }
         switch cell(at: index) {
         case .session(let id)?:
-            link.send(.open(id: id))
+            if let session = shown.first(where: { $0.id == id }), let prompt = answerable(session) {
+                hover(nil) // the label would sit under the card
+                PermissionCard.show(for: session, prompt: prompt, beside: view.screenFrame(ofCell: index), edge: edge) { [link] message in
+                    link.send(message)
+                }
+            } else {
+                link.send(.open(id: id))
+            }
         case .add?:
             hover(nil)
             link.requestLibrary { [weak self] entries in
@@ -184,6 +194,11 @@ final class StripController {
         case .tab?, nil:
             break
         }
+    }
+
+    /// The permission prompt a click answers, when the session waits on one and the preference is on.
+    private func answerable(_ session: PanelSession) -> PermissionPrompt? {
+        Preferences.answerPermissions ? session.permission : nil
     }
 
     private func toggleCollapsed() {
@@ -258,6 +273,12 @@ enum Preferences {
     static var soundWhenWaiting: Bool {
         get { store.bool(forKey: "soundWhenWaiting") }
         set { store.set(newValue, forKey: "soundWhenWaiting") }
+    }
+
+    /// A click on a creature waiting for permission shows the request to allow or deny; on until the user turns it off.
+    static var answerPermissions: Bool {
+        get { store.object(forKey: "answerPermissions") as? Bool ?? true }
+        set { store.set(newValue, forKey: "answerPermissions") }
     }
 
     /// Sessions that still have the default color take one derived from their project; off until the user turns it on.
