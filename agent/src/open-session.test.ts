@@ -218,7 +218,7 @@ test("the session the desktop app already counts as focused goes through needs-i
 test("a new Claude session starts in the desktop app when it is installed, else in Terminal, like Codex; the folder is only an argument", () => {
   const folder = "/Users/dev/my app; rm -rf ~";
   const desktop = planNew(folder, "claude", true);
-  expect(desktop.slice(0, 3)).toEqual(["/bin/sh", "-c", 'cd "$1" && exec claude --desktop']);
+  expect(desktop.slice(0, 3)).toEqual(["/bin/sh", "-c", 'cd "$1" && exec /usr/bin/script -q /dev/null claude --desktop']);
   expect(desktop.slice(3)).toEqual(["sh", folder]);
   for (const [agent, hasDesktop] of [["claude", false], ["codex", true]] as const) {
     const command = planNew(folder, agent, hasDesktop);

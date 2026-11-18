@@ -319,10 +319,11 @@ export async function openSession(
 /**
  * The command that starts a new session of `agent` in `cwd`: Claude Code in the desktop app when it is installed,
  * as sessions open there; otherwise, and for Codex, in a new Terminal tab. The folder reaches the command as an
- * argument only.
+ * argument only. `claude --desktop` refuses to run with its output redirected, so it gets a pseudo-terminal from
+ * `script`; it hands the folder to the app and exits.
  */
 export function planNew(cwd: string, agent: "claude" | "codex", desktop = hasDesktopApp()): string[] {
-  if (agent === "claude" && desktop) return ["/bin/sh", "-c", 'cd "$1" && exec claude --desktop', "sh", cwd];
+  if (agent === "claude" && desktop) return ["/bin/sh", "-c", 'cd "$1" && exec /usr/bin/script -q /dev/null claude --desktop', "sh", cwd];
   return ["osascript", "-e", NEW_IN_TERMINAL, cwd, agent];
 }
 
