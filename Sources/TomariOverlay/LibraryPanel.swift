@@ -2,7 +2,9 @@ import AppKit
 import TomariCore
 
 /// The + panel: one tab per agent, a search field, and the matching sessions; choosing one pins it, or unpins it
-/// when it already is. A floating panel rather than a menu, so the search field takes typing like any other.
+/// when it already is. The launcher is the same panel opened by the global shortcut in the middle of the screen,
+/// with the strip's sessions as its first tab, where choosing a session opens it instead.
+/// A floating panel rather than a menu, so the search field takes typing like any other.
 /// It takes the keyboard without activating Tomari, so the app you were in stays in front, and closes when it
 /// loses the keyboard: a click elsewhere, Esc, or a choice.
 @MainActor
@@ -10,7 +12,15 @@ final class LibraryPanel: NSObject, NSTableViewDataSource, NSTableViewDelegate, 
     /// The panel on screen, kept alive while it shows.
     private static var current: LibraryPanel?
 
+    enum Mode {
+        /// From the +: choosing pins or unpins.
+        case pin
+        /// From the shortcut: choosing opens, ⌘ with it pins or unpins.
+        case launch
+    }
+
     private static let size = NSSize(width: 320, height: 420)
+    private static let launcherSize = NSSize(width: 380, height: 440)
     private static let gap: CGFloat = 8
     private static let tabKey = "libraryTab"
 
@@ -19,24 +29,50 @@ final class LibraryPanel: NSObject, NSTableViewDataSource, NSTableViewDelegate, 
     private let field = NSSearchField()
     private let table = HoverTable()
     private let empty = NSTextField(labelWithString: "No sessions")
+    private let hint = NSTextField(labelWithString: "↩ open · ⌘↩ pin")
     private var browser: LibraryBrowser
+    private let mode: Mode
+    /// The strip's sessions by id, for their status in the launcher's first tab.
+    private let onStrip: [String: PanelSession]
     private let now: Date
     private let send: (ClientMessage) -> Void
+    private var size: NSSize { mode == .launch ? Self.launcherSize : Self.size }
 
     /// Shows the panel beside `anchor` (the + cell, in screen coordinates), on the side of the strip away from `edge`.
     static func show(_ entries: [LibraryEntry], now: Date, beside anchor: NSRect, edge: ScreenEdge, send: @escaping (ClientMessage) -> Void) {
         current?.close()
         let preferred = Preferences.store.string(forKey: tabKey)
-        let panel = LibraryPanel(browser: LibraryBrowser(entries: entries, preferredAgent: preferred), now: now, send: send)
+        let panel = LibraryPanel(browser: LibraryBrowser(entries: entries, preferredAgent: preferred), mode: .pin, onStrip: [:], now: now, send: send)
         current = panel
         panel.present(beside: anchor, edge: edge)
     }
 
-    private init(browser: LibraryBrowser, now: Date, send: @escaping (ClientMessage) -> Void) {
+    /// Shows the launcher in the middle of the screen with the pointer, on the strip's tab when it has sessions.
+    static func launch(_ entries: [LibraryEntry], onStrip: [PanelSession], now: Date, send: @escaping (ClientMessage) -> Void) {
+        current?.close()
+        let preferred = onStrip.isEmpty ? Preferences.store.string(forKey: tabKey) : LibraryGroup.onStrip
+        let browser = LibraryBrowser(entries: entries, onStrip: onStrip, preferredAgent: preferred)
+        let byId = Dictionary(onStrip.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        let panel = LibraryPanel(browser: browser, mode: .launch, onStrip: byId, now: now, send: send)
+        current = panel
+        panel.presentCentered()
+    }
+
+    /// Whether the launcher is on screen, so the shortcut can close it again.
+    static var isLaunched: Bool { current?.mode == .launch }
+
+    static func dismiss() {
+        current?.close()
+    }
+
+    private init(browser: LibraryBrowser, mode: Mode, onStrip: [String: PanelSession], now: Date, send: @escaping (ClientMessage) -> Void) {
         self.browser = browser
+        self.mode = mode
+        self.onStrip = onStrip
         self.now = now
         self.send = send
-        window = KeyPanel(contentRect: NSRect(origin: .zero, size: Self.size), styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: true)
+        let size = mode == .launch ? Self.launcherSize : Self.size
+        window = KeyPanel(contentRect: NSRect(origin: .zero, size: size), styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: true)
         super.init()
         build()
     }
@@ -55,7 +91,7 @@ final class LibraryPanel: NSObject, NSTableViewDataSource, NSTableViewDelegate, 
         window.delegate = self
         window.onCancel = { [weak self] in self?.close() }
 
-        let backdrop = NSVisualEffectView(frame: NSRect(origin: .zero, size: Self.size))
+        let backdrop = NSVisualEffectView(frame: NSRect(origin: .zero, size: size))
         backdrop.material = .popover
         backdrop.state = .active
         backdrop.wantsLayer = true
@@ -67,7 +103,7 @@ final class LibraryPanel: NSObject, NSTableViewDataSource, NSTableViewDelegate, 
         tabs.trackingMode = .selectOne
         tabs.segmentCount = max(browser.groups.count, 1)
         for (index, group) in browser.groups.enumerated() {
-            tabs.setImage(Self.badgeImage(group.badge), forSegment: index)
+            tabs.setImage(group.badge.map(Self.badgeImage), forSegment: index)
             tabs.setImageScaling(.scaleNone, forSegment: index)
         }
         tabs.target = self
@@ -108,7 +144,11 @@ final class LibraryPanel: NSObject, NSTableViewDataSource, NSTableViewDelegate, 
         terminal.bezelStyle = .rounded
         terminal.controlSize = .small
 
-        for view in [tabs, field, scroll, empty, terminal] as [NSView] {
+        hint.font = .systemFont(ofSize: 11)
+        hint.textColor = .tertiaryLabelColor
+        hint.isHidden = mode != .launch
+
+        for view in [tabs, field, scroll, empty, terminal, hint] as [NSView] {
             view.translatesAutoresizingMaskIntoConstraints = false
             backdrop.addSubview(view)
         }
@@ -127,19 +167,33 @@ final class LibraryPanel: NSObject, NSTableViewDataSource, NSTableViewDelegate, 
             empty.centerYAnchor.constraint(equalTo: scroll.centerYAnchor),
             terminal.leadingAnchor.constraint(equalTo: backdrop.leadingAnchor, constant: pad),
             terminal.bottomAnchor.constraint(equalTo: backdrop.bottomAnchor, constant: -pad),
+            hint.trailingAnchor.constraint(equalTo: backdrop.trailingAnchor, constant: -pad - 2),
+            hint.centerYAnchor.constraint(equalTo: terminal.centerYAnchor),
         ])
-        column.width = Self.size.width - 8
+        column.width = size.width - 8
         refresh()
     }
 
     private func present(beside anchor: NSRect, edge: ScreenEdge) {
         let screen = NSScreen.screens.first { $0.frame.intersects(anchor) } ?? NSScreen.main
         let visible = screen?.visibleFrame ?? anchor.insetBy(dx: -1000, dy: -1000)
-        let x = edge == .right ? anchor.minX - Self.gap - Self.size.width : anchor.maxX + Self.gap
+        let x = edge == .right ? anchor.minX - Self.gap - size.width : anchor.maxX + Self.gap
         // Bottom aligned with the + where it fits, else kept on screen.
         var y = anchor.minY
-        y = min(max(y, visible.minY + Self.gap), visible.maxY - Self.size.height - Self.gap)
-        window.setFrame(NSRect(x: x, y: y, width: Self.size.width, height: Self.size.height), display: true)
+        y = min(max(y, visible.minY + Self.gap), visible.maxY - size.height - Self.gap)
+        window.setFrame(NSRect(x: x, y: y, width: size.width, height: size.height), display: true)
+        window.makeKeyAndOrderFront(nil)
+        window.makeFirstResponder(field)
+    }
+
+    /// Centered on the screen with the pointer, a little above the middle, where Spotlight sits.
+    private func presentCentered() {
+        let mouse = NSEvent.mouseLocation
+        let screen = NSScreen.screens.first { NSMouseInRect(mouse, $0.frame, false) } ?? NSScreen.main
+        guard let visible = screen?.visibleFrame else { return }
+        let x = visible.midX - size.width / 2
+        let y = max(visible.maxY - visible.height * 0.2 - size.height, visible.minY + Self.gap)
+        window.setFrame(NSRect(x: x, y: y, width: size.width, height: size.height), display: true)
         window.makeKeyAndOrderFront(nil)
         window.makeFirstResponder(field)
     }
@@ -199,15 +253,20 @@ final class LibraryPanel: NSObject, NSTableViewDataSource, NSTableViewDelegate, 
         send(.terminal)
     }
 
-    /// Pins the selected session, or unpins it, and closes.
+    /// Pins the selected session, or unpins it, and closes; the launcher opens it instead, unless ⌘ is down.
     private func choose() {
         guard let entry = browser.selected else { return }
         close()
-        send(.pin(id: entry.id, pinned: !entry.pinned))
+        if mode == .launch && !(NSApp.currentEvent?.modifierFlags.contains(.command) ?? false) {
+            send(.open(id: entry.id))
+        } else {
+            send(.pin(id: entry.id, pinned: !entry.pinned))
+        }
     }
 
+    /// The agent's tab the + opens on next time; the launcher's strip tab isn't one.
     private func rememberTab() {
-        if let agent = browser.agent { Preferences.store.set(agent, forKey: Self.tabKey) }
+        if let agent = browser.agent, agent != LibraryGroup.onStrip { Preferences.store.set(agent, forKey: Self.tabKey) }
     }
 
     func controlTextDidChange(_ obj: Notification) {
@@ -250,7 +309,7 @@ final class LibraryPanel: NSObject, NSTableViewDataSource, NSTableViewDelegate, 
     func tableView(_ tableView: NSTableView, viewFor tableColumn: NSTableColumn?, row: Int) -> NSView? {
         let entry = browser.visible[row]
         let cell = (tableView.makeView(withIdentifier: SessionRow.identifier, owner: nil) as? SessionRow) ?? SessionRow()
-        cell.show(entry, now: now)
+        cell.show(entry, now: now, status: browser.agent == LibraryGroup.onStrip ? onStrip[entry.id] : nil)
         return cell
     }
 
@@ -283,7 +342,7 @@ final class LibraryPanel: NSObject, NSTableViewDataSource, NSTableViewDelegate, 
 }
 
 /// A borderless panel that takes the keyboard without activating the app.
-private final class KeyPanel: NSPanel {
+final class KeyPanel: NSPanel {
     var onCancel: (() -> Void)?
 
     override var canBecomeKey: Bool { true }
@@ -380,18 +439,31 @@ private final class SessionRow: NSTableCellView {
 
     /// White on the accent highlight, the usual colors elsewhere.
     override var backgroundStyle: NSView.BackgroundStyle {
-        didSet {
-            let highlighted = backgroundStyle == .emphasized
-            name.textColor = highlighted ? .white : .labelColor
-            detail.textColor = highlighted ? NSColor.white.withAlphaComponent(0.8) : .secondaryLabelColor
-            pin.contentTintColor = highlighted ? .white : .secondaryLabelColor
-        }
+        didSet { paint() }
     }
 
-    func show(_ entry: LibraryEntry, now: Date) {
+    private func paint() {
+        let highlighted = backgroundStyle == .emphasized
+        name.textColor = highlighted ? .white : .labelColor
+        detail.textColor = highlighted ? NSColor.white.withAlphaComponent(0.8) : waiting ? NSColor(paint: .accent) : .secondaryLabelColor
+        pin.contentTintColor = highlighted ? .white : .secondaryLabelColor
+    }
+
+    /// With the session's `status`, in the launcher's strip tab, the detail is what it is doing instead of when.
+    func show(_ entry: LibraryEntry, now: Date, status: PanelSession? = nil) {
         name.stringValue = entry.name
-        detail.stringValue = "\(entry.folder) · \(ago(since: entry.lastActivityAt, now: now))"
+        if let status {
+            detail.stringValue = "\(entry.folder) · \(status.statusLine(at: now))"
+            waiting = status.needsAttention
+        } else {
+            detail.stringValue = "\(entry.folder) · \(ago(since: entry.lastActivityAt, now: now))"
+            waiting = false
+        }
         pin.isHidden = !entry.pinned
         toolTip = "\(entry.name)\n\(entry.cwd)"
+        paint()
     }
+
+    /// Waiting for the user: the detail in the accent color, as on the hover label.
+    private var waiting = false
 }

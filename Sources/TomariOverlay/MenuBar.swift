@@ -5,11 +5,13 @@ import TomariCore
 final class MenuBar: NSObject, NSMenuDelegate {
     private let link: AgentLink
     private let strip: StripController
+    private let hotKey: LauncherHotKey
     private let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
 
-    init(link: AgentLink, strip: StripController) {
+    init(link: AgentLink, strip: StripController, hotKey: LauncherHotKey) {
         self.link = link
         self.strip = strip
+        self.hotKey = hotKey
         super.init()
         item.button?.image = Self.icon()
         item.button?.imagePosition = .imageLeading
@@ -42,6 +44,23 @@ final class MenuBar: NSObject, NSMenuDelegate {
         edgeItem.submenu = edges
         menu.addItem(edgeItem)
 
+        if hotKey.unavailable { hotKey.apply() } // the app that held it may have quit
+        let launcher = entry(launcherTitle, #selector(openLauncher))
+        launcher.isEnabled = link.status == .online
+        menu.addItem(launcher)
+        let shortcuts = NSMenu()
+        shortcuts.addItem(entry("Record Shortcut…", #selector(recordShortcut)))
+        let standard = entry("Use \(LauncherShortcut.standard.title)", #selector(useStandardShortcut))
+        standard.state = hotKey.shortcut == .standard ? .on : .off
+        shortcuts.addItem(standard)
+        let off = entry("Off", #selector(turnShortcutOff))
+        off.state = hotKey.shortcut == nil ? .on : .off
+        shortcuts.addItem(off)
+        let shortcutItem = NSMenuItem(title: "Launcher Shortcut", action: nil, keyEquivalent: "")
+        shortcutItem.submenu = shortcuts
+        menu.addItem(shortcutItem)
+        menu.addItem(.separator())
+
         let sound = entry("Sound when done", #selector(toggleSound))
         sound.state = Preferences.soundWhenDone ? .on : .off
         menu.addItem(sound)
@@ -68,10 +87,33 @@ final class MenuBar: NSObject, NSMenuDelegate {
         }
     }
 
+    private var launcherTitle: String {
+        guard let shortcut = hotKey.shortcut else { return "Open Launcher" }
+        return hotKey.unavailable ? "Open Launcher (\(shortcut.title) is in use by another app)" : "Open Launcher (\(shortcut.title))"
+    }
+
     private func entry(_ title: String, _ action: Selector) -> NSMenuItem {
         let item = NSMenuItem(title: title, action: action, keyEquivalent: "")
         item.target = self
         return item
+    }
+
+    @objc private func openLauncher() {
+        // After the menu closes, so the launcher can take the keyboard.
+        DispatchQueue.main.async { MainActor.assumeIsolated { self.strip.toggleLauncher() } }
+    }
+
+    @objc private func recordShortcut() {
+        // After the menu closes, so the recorder can take the keyboard.
+        DispatchQueue.main.async { MainActor.assumeIsolated { ShortcutRecorder.show(for: self.hotKey) } }
+    }
+
+    @objc private func useStandardShortcut() {
+        if !hotKey.set(.standard) { NSSound.beep() }
+    }
+
+    @objc private func turnShortcutOff() {
+        hotKey.set(nil)
     }
 
     @objc private func toggleStrip() {

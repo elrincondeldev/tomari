@@ -5,11 +5,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var link: AgentLink?
     private var strip: StripController?
     private var menuBar: MenuBar?
+    private let hotKey = LauncherHotKey()
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         let link = AgentLink()
         let strip = StripController(link: link)
-        menuBar = MenuBar(link: link, strip: strip)
+        LauncherHotKey.onPress = { [weak strip] in strip?.toggleLauncher() }
+        hotKey.apply()
+        menuBar = MenuBar(link: link, strip: strip, hotKey: hotKey)
         self.link = link
         self.strip = strip
         link.start()
