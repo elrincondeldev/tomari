@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { buildPanelHooks, CODEX_HOOK_URL, hasPanelHooks, HOOK_URL, mergeHooks, PID_HEADER } from "./hooks-config.ts";
+import { buildPanelHooks, CODEX_HOOK_URL, hasPanelHooks, HOOK_URL, mergeHooks, PERMISSION_HOOK_URL, PID_HEADER } from "./hooks-config.ts";
 
 const theirs = { type: "command", command: "echo mine" };
 
@@ -34,6 +34,18 @@ test("hasPanelHooks", () => {
   expect(hasPanelHooks(mergeHooks({}, { install: true }))).toBe(true);
 });
 
+test("Claude Code's permission hook waits for the agent and passes its answer on, and is ours like the rest", () => {
+  const [group] = buildPanelHooks().PermissionRequest!;
+  const hook = group!.hooks[0]!;
+  expect(hook.timeout).toBe(600);
+  const command = hook.command as string;
+  expect(command).toContain(PERMISSION_HOOK_URL);
+  expect(command).toContain("-m 595");
+  expect(command).not.toMatch(/[^2]>\/dev\/null/); // stdout is the decision
+  expect(command.endsWith("|| true")).toBe(true);
+  expect(mergeHooks(mergeHooks({}, { install: true }), { install: false })).toEqual({});
+});
+
 describe("Codex hooks", () => {
   test("cover the events Codex has, post to the Codex endpoint and report the hook's parent pid", () => {
     const hooks = buildPanelHooks("codex");
@@ -43,6 +55,8 @@ describe("Codex hooks", () => {
     expect(command).toContain(CODEX_HOOK_URL);
     expect(command).toContain(`${PID_HEADER}: $PPID`);
     expect(command.endsWith("|| true")).toBe(true);
+    // Codex shows its approval only after the hook, so its permission hook never waits.
+    expect(hooks.PermissionRequest![0]!.hooks[0]!.command).toBe(command);
   });
 
   test("merge into a hooks.json, are recognized as ours, and come out cleanly", () => {

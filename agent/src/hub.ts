@@ -3,7 +3,16 @@
  * about changes the panel can see, so a burst of identical hook events yields one message.
  */
 import { basename } from "node:path";
-import { BACKGROUND_KIND, CODEX_ICON, DEFAULT_ICON, type LibraryEntry, type PanelSession, type SessionAgent, type SessionIcon } from "../../shared/protocol.ts";
+import {
+  BACKGROUND_KIND,
+  CODEX_ICON,
+  DEFAULT_ICON,
+  type LibraryEntry,
+  type PanelSession,
+  type PermissionPrompt,
+  type SessionAgent,
+  type SessionIcon,
+} from "../../shared/protocol.ts";
 import { applyHookEvent, isCodex, reconcile, type AgentEntry, type HookEvent, type HookOrigin, type SessionRecord } from "./state.ts";
 import type { Pin, Store } from "./store.ts";
 
@@ -33,6 +42,8 @@ export class SessionHub {
   private lookedUp = new Set<string>();
   /** Sessions stopped from the panel → when the poll may list them again; in memory only. */
   private stoppedUntil = new Map<string, number>();
+  /** The permission prompt each session waits on that the strip can answer; in memory only. */
+  private permissions = new Map<string, PermissionPrompt>();
   /** The label the panel last saw for each session. */
   private labels = new Map<string, string>();
   /** Session in front in the terminal or desktop app; not persisted. */
@@ -191,6 +202,13 @@ export class SessionHub {
     return true;
   }
 
+  /** Shows or clears the permission prompt the strip can answer for a session. */
+  setPermission(id: string, prompt: PermissionPrompt | null) {
+    if (prompt) this.permissions.set(id, prompt);
+    else if (!this.permissions.delete(id)) return;
+    this.emitSession(id);
+  }
+
   setFocused(id: string | null) {
     if (id === this.focusedId) return;
     this.focusedId = id;
@@ -321,6 +339,7 @@ export class SessionHub {
       icon: pin?.icon ?? defaultIcon(rec),
       ...(rec.kind ? { kind: rec.kind } : {}),
       ...(rec.agent ? { agent: rec.agent } : {}),
+      ...(this.permissions.has(rec.id) ? { permission: this.permissions.get(rec.id) } : {}),
     };
   }
 }

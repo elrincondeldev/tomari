@@ -42,6 +42,10 @@ export function parseClientMessage(raw: string): ClientMessage | null {
       return { type: "open", id: msg.id };
     case "stop":
       return { type: "stop", id: msg.id };
+    case "permission":
+      return isSessionId(msg.request) && typeof msg.allow === "boolean"
+        ? { type: "permission", id: msg.id, request: msg.request, allow: msg.allow }
+        : null;
     case "pin":
       return typeof msg.pinned === "boolean" ? { type: "pin", id: msg.id, pinned: msg.pinned } : null;
     case "icon":

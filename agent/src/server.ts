@@ -14,6 +14,7 @@ import type { HookEvent, HookOrigin } from "./state.ts";
 import { codexAdmission, codexPidResolver, codexThreads, type CodexThread } from "./codex.ts";
 import { PID_HEADER } from "./hooks-config.ts";
 import { FrontApp } from "./front-app.ts";
+import { answerable, decisionOutput, PermissionDesk, HOLD_MS } from "./permissions.ts";
 
 export interface ServerOptions {
   hub: SessionHub;
@@ -35,6 +36,8 @@ export interface ServerOptions {
   admitCodex?: (event: HookEvent, known: boolean) => Promise<boolean>;
   /** Codex's threads, running or not; replaceable so tests don't read Codex's database. */
   codexLibrary?: () => Promise<CodexThread[]>;
+  /** How long a permission request is held for the strip; shorter in tests. */
+  permissionHoldMs?: number;
 }
 
 const TOPIC = "panel";
@@ -54,7 +57,13 @@ export function startServers({
   admitCodex = codexAdmission(),
   desktopFocus = () => null,
   codexLibrary = () => codexThreads(),
+  permissionHoldMs = HOLD_MS,
 }: ServerOptions) {
+  /** Permission prompts held for the strip to answer. */
+  const desk = new PermissionDesk((id, prompt) => hub.setPermission(id, prompt), permissionHoldMs);
+  /** Panel connections open now: a request is held only while someone can answer it. */
+  let clients = 0;
+
   /**
    * The Claude app's sessions and Codex's threads, plus the live ones the agent sees, e.g. in a terminal; a desktop
    * or Codex entry wins a duplicate. Most recent first, up to LIBRARY_SIZE per agent.
@@ -110,8 +119,22 @@ export function startServers({
   const hookServer = Bun.serve({
     hostname: "127.0.0.1",
     port: hookPort,
-    async fetch(req) {
+    async fetch(req, server) {
       const { pathname } = new URL(req.url);
+      if (req.method === "POST" && pathname === "/hook/permission") {
+        let event: HookEvent;
+        try {
+          event = (await req.json()) as HookEvent;
+        } catch {
+          return new Response("bad json", { status: 400 });
+        }
+        if (typeof event?.session_id !== "string" || !answerable(event) || clients === 0) return new Response(null, { status: 204 });
+        server.timeout(req, 0); // held for minutes: no idle timeout
+        hub.handleHook(event);
+        const answer = await desk.hold(event, req.signal);
+        console.error(`permission ${event.session_id.slice(0, 8)}: ${answer ?? "answered in Claude"}`);
+        return answer ? Response.json(decisionOutput(answer)) : new Response(null, { status: 204 });
+      }
       if (req.method !== "POST" || (pathname !== "/hook" && pathname !== "/hook/codex")) return new Response("not found", { status: 404 });
       try {
         const event = (await req.json()) as HookEvent;
@@ -131,6 +154,8 @@ export function startServers({
             const pid = Number.isSafeInteger(reported) && reported > 1 ? await codexPid(reported) : null;
             if (pid !== null) origin.pid = pid;
           }
+          // The session moved on, so a prompt held for it was answered in Claude. Its own Notification doesn't count.
+          if (event.hook_event_name !== "Notification" && event.hook_event_name !== "PermissionRequest") desk.release(event.session_id);
           hub.handleHook(event, origin);
         }
       } catch {
@@ -154,6 +179,7 @@ export function startServers({
     websocket: {
       maxPayloadLength: 4 * 1024,
       open(ws) {
+        clients++;
         ws.subscribe(TOPIC);
         send(ws, { type: "snapshot", sessions: hub.snapshot(), focusedId: hub.focusedId });
       },
@@ -166,6 +192,12 @@ export function startServers({
           if (msg.type === "frontApp") {
             ws.data.reportedFront = true;
             front.set(msg.app);
+            return;
+          }
+          if (msg.type === "permission") {
+            if (!desk.answer(msg.id, msg.request, msg.allow ? "allow" : "deny")) {
+              send(ws, { type: "error", message: "already answered" });
+            }
             return;
           }
           if (msg.type === "terminal") {
@@ -223,6 +255,8 @@ export function startServers({
         }
       },
       close(ws) {
+        clients--;
+        if (clients === 0) desk.releaseAll(); // nobody left to answer: Claude's dialog decides
         ws.unsubscribe(TOPIC);
         if (ws.data.reportedFront) front.set("unknown"); // its report is stale now; ask Terminal again until someone says
       },
@@ -235,6 +269,7 @@ export function startServers({
     hookServer,
     panelServer,
     stop() {
+      desk.releaseAll();
       unsubscribe();
       hookServer.stop(true);
       panelServer.stop(true);

@@ -37,6 +37,10 @@ export const CODEX_EVENTS = [
 
 export const HOOK_URL = `http://127.0.0.1:${HOOK_PORT}/hook`;
 export const CODEX_HOOK_URL = `${HOOK_URL}/codex`;
+/** Where Claude Code's permission requests go: the agent may hold one there until the strip answers it. */
+export const PERMISSION_HOOK_URL = `${HOOK_URL}/permission`;
+/** Seconds Claude Code waits on the permission hook; the agent answers before then (permissions.ts HOLD_MS). */
+const PERMISSION_TIMEOUT = 600;
 /** Header the Codex hook sets to the pid of the process that ran it: Codex reports no pid of its own. */
 export const PID_HEADER = "X-Tomari-Pid";
 
@@ -57,7 +61,14 @@ export function buildPanelHooks(target: HookTarget = "claude") {
       ? `/usr/bin/curl -s -m 1 -H 'Content-Type: application/json' -H "${PID_HEADER}: $PPID" --data-binary @- ${CODEX_HOOK_URL} >/dev/null 2>&1 || true`
       : `/usr/bin/curl -s -m 1 -H 'Content-Type: application/json' --data-binary @- ${HOOK_URL} >/dev/null 2>&1 || true`;
   const events = target === "codex" ? CODEX_EVENTS : PANEL_EVENTS;
-  return Object.fromEntries(events.map((event) => [event, [{ hooks: [{ type: "command", command, timeout: 2 }] }]]));
+  const hooks: Record<string, MatcherGroup[]> = Object.fromEntries(events.map((event) => [event, [{ hooks: [{ type: "command", command, timeout: 2 }] }]]));
+  // Claude Code shows its own dialog while this runs and takes whichever answers first, so it can wait; its
+  // stdout is the decision, if any. When the agent is down curl fails at once and Claude's dialog decides.
+  if (target === "claude") {
+    const permission = `/usr/bin/curl -s -m ${PERMISSION_TIMEOUT - 5} -H 'Content-Type: application/json' --data-binary @- ${PERMISSION_HOOK_URL} 2>/dev/null || true`;
+    hooks.PermissionRequest = [{ hooks: [{ type: "command", command: permission, timeout: PERMISSION_TIMEOUT }] }];
+  }
+  return hooks;
 }
 
 /** True for handlers installed by this project, including the earlier `http` variant. */

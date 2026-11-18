@@ -38,6 +38,22 @@ public struct SessionIcon: Equatable, Sendable, Decodable {
     ]
 }
 
+/// A permission prompt the strip can answer, while Claude Code waits on it.
+public struct PermissionPrompt: Equatable, Sendable, Decodable {
+    /// Names this request in the answer.
+    public var id: String
+    /// e.g. "Bash", "Edit", "mcp__github__create_issue".
+    public var tool: String
+    /// What it asks to do, in full: the command, file, URL or input.
+    public var detail: String
+
+    public init(id: String, tool: String, detail: String) {
+        self.id = id
+        self.tool = tool
+        self.detail = detail
+    }
+}
+
 public struct PanelSession: Equatable, Identifiable, Sendable {
     public var id: String
     public var name: String
@@ -54,10 +70,13 @@ public struct PanelSession: Equatable, Identifiable, Sendable {
     public var kind: String?
     /// The coding agent running the session, such as "codex"; nil means Claude Code.
     public var agent: String?
+    /// The permission prompt the session waits on that the strip can answer; nil when none.
+    public var permission: PermissionPrompt?
 
     public init(
         id: String, name: String, cwd: String, state: SessionState, activity: String?, live: Bool,
-        stateSince: Date, pinned: Bool, position: Int?, icon: SessionIcon, kind: String? = nil, agent: String? = nil
+        stateSince: Date, pinned: Bool, position: Int?, icon: SessionIcon, kind: String? = nil, agent: String? = nil,
+        permission: PermissionPrompt? = nil
     ) {
         self.id = id
         self.name = name
@@ -71,12 +90,13 @@ public struct PanelSession: Equatable, Identifiable, Sendable {
         self.icon = icon
         self.kind = kind
         self.agent = agent
+        self.permission = permission
     }
 }
 
 extension PanelSession: Decodable {
     private enum Keys: String, CodingKey {
-        case id, name, cwd, state, activity, live, stateSince, pinned, position, icon, kind, agent
+        case id, name, cwd, state, activity, live, stateSince, pinned, position, icon, kind, agent, permission
     }
 
     public init(from decoder: Decoder) throws {
@@ -94,7 +114,8 @@ extension PanelSession: Decodable {
             position: try c.decodeIfPresent(Int.self, forKey: .position),
             icon: try c.decode(SessionIcon.self, forKey: .icon),
             kind: try? c.decodeIfPresent(String.self, forKey: .kind),
-            agent: try? c.decodeIfPresent(String.self, forKey: .agent)
+            agent: try? c.decodeIfPresent(String.self, forKey: .agent),
+            permission: try? c.decodeIfPresent(PermissionPrompt.self, forKey: .permission)
         )
     }
 }
@@ -196,10 +217,12 @@ public enum ClientMessage: Equatable, Sendable {
     case stop(id: String)
     /// Sent on connect and whenever the app in front changes kind.
     case frontApp(FrontAppKind)
+    /// Answers the session's permission prompt `request`.
+    case permission(id: String, request: String, allow: Bool)
 
     public var sessionId: String? {
         switch self {
-        case .open(let id), .pin(let id, _), .icon(let id, _), .stop(let id): return id
+        case .open(let id), .pin(let id, _), .icon(let id, _), .stop(let id), .permission(let id, _, _): return id
         case .library, .terminal, .frontApp: return nil
         }
     }
@@ -221,6 +244,8 @@ public enum ClientMessage: Equatable, Sendable {
             object = ["type": "stop", "id": id]
         case .frontApp(let kind):
             object = ["type": "frontApp", "app": kind.rawValue]
+        case .permission(let id, let request, let allow):
+            object = ["type": "permission", "id": id, "request": request, "allow": allow]
         }
         let body = try! JSONSerialization.data(withJSONObject: object, options: [.sortedKeys])
         return String(decoding: body, as: UTF8.self)

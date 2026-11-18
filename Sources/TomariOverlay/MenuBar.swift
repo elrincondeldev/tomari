@@ -42,6 +42,11 @@ final class MenuBar: NSObject, NSMenuDelegate {
         edgeItem.submenu = edges
         menu.addItem(edgeItem)
 
+        let answer = entry("Answer permissions from the strip", #selector(toggleAnswerPermissions))
+        answer.state = Preferences.answerPermissions ? .on : .off
+        answer.toolTip = "Click a Claude Code session waiting for permission to see what it asks and allow or deny it"
+        menu.addItem(answer)
+
         let sound = entry("Sound when done", #selector(toggleSound))
         sound.state = Preferences.soundWhenDone ? .on : .off
         menu.addItem(sound)
@@ -76,6 +81,11 @@ final class MenuBar: NSObject, NSMenuDelegate {
 
     @objc private func toggleStrip() {
         strip.hidden.toggle()
+    }
+
+    @objc private func toggleAnswerPermissions() {
+        Preferences.answerPermissions.toggle()
+        strip.refresh()
     }
 
     @objc private func toggleSound() {
