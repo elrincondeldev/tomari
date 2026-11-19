@@ -15,7 +15,7 @@ import type { HookEvent, HookOrigin } from "./state.ts";
 import { codexAdmission, codexPidResolver, codexThreads, type CodexThread } from "./codex.ts";
 import { PID_HEADER } from "./hooks-config.ts";
 import { FrontApp } from "./front-app.ts";
-import { answerable, decisionOutput, PermissionDesk, HOLD_MS } from "./permissions.ts";
+import { answerable, PermissionDesk, HOLD_MS } from "./permissions.ts";
 
 export interface ServerOptions {
   hub: SessionHub;
@@ -135,9 +135,9 @@ export function startServers({
         if (typeof event?.session_id !== "string" || !answerable(event) || clients === 0) return new Response(null, { status: 204 });
         server.timeout(req, 0); // held for minutes: no idle timeout
         hub.handleHook(event);
-        const answer = await desk.hold(event, req.signal);
-        console.error(`permission ${event.session_id.slice(0, 8)}: ${answer ?? "answered in Claude"}`);
-        return answer ? Response.json(decisionOutput(answer)) : new Response(null, { status: 204 });
+        const settled = await desk.hold(event, req.signal);
+        console.error(`permission ${event.session_id.slice(0, 8)}: ${settled?.said ?? "answered in Claude"}`);
+        return settled ? Response.json(settled.output) : new Response(null, { status: 204 });
       }
       if (req.method !== "POST" || (pathname !== "/hook" && pathname !== "/hook/codex")) return new Response("not found", { status: 404 });
       try {
@@ -181,7 +181,7 @@ export function startServers({
       return new Response("expected a WebSocket", { status: 400 });
     },
     websocket: {
-      maxPayloadLength: 4 * 1024,
+      maxPayloadLength: 4 * 1024, // an answer is ids and option indexes
       open(ws) {
         clients++;
         ws.subscribe(TOPIC);
@@ -199,9 +199,8 @@ export function startServers({
             return;
           }
           if (msg.type === "permission") {
-            if (!desk.answer(msg.id, msg.request, msg.allow ? "allow" : "deny")) {
-              send(ws, { type: "error", message: "already answered" });
-            }
+            const result = desk.answer(msg.id, msg.request, { allow: msg.allow, always: msg.always, answers: msg.answers });
+            if (result !== "ok") send(ws, { type: "error", message: result === "gone" ? "already answered" : "invalid answer" });
             return;
           }
           if (msg.type === "new") {

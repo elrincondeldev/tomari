@@ -100,7 +100,9 @@ export function applyHookEvent(prev: SessionRecord | undefined, e: HookEvent, no
     case "PostToolUseFailure":
       return afterTurn ? rec : to("working", describeTool(String(e.tool_name ?? ""), e.tool_input));
 
-    case "PermissionRequest": { // Codex; Claude Code reports a permission prompt as a Notification
+    case "PermissionRequest": { // Codex, and Claude Code's prompts the strip can answer; Claude also sends a Notification
+      const tool = String(e.tool_name ?? "");
+      if (tool in ASKS_USER) return to("needs_input", ASKS_USER[tool]!);
       const input = (e.tool_input ?? {}) as Record<string, unknown>;
       return to("needs_permission", oneLine(input.description) || describeTool(String(e.tool_name ?? ""), e.tool_input) || "Needs your permission");
     }

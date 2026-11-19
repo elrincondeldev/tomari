@@ -32,6 +32,8 @@ final class AgentLink {
     @ObservationIgnored private var waitingChime = WaitingChime()
     @ObservationIgnored private var frontReporter = FrontAppReporter()
     @ObservationIgnored private var frontObserver: NSObjectProtocol?
+    /// Told of every change to the sessions, to post or withdraw notifications.
+    @ObservationIgnored var notifier: Notifier?
 
     private static let minRetry: Duration = .seconds(1)
     private static let maxRetry: Duration = .seconds(10)
@@ -111,6 +113,11 @@ final class AgentLink {
             default:
                 chimeIfNeeded(parsed)
                 list.apply(parsed)
+                if case .snapshot = parsed {
+                    notifier?.sessionsChanged(list, initial: true, front: .other)
+                } else {
+                    notifier?.sessionsChanged(list, initial: false, front: FrontAppKind(bundleId: NSWorkspace.shared.frontmostApplication?.bundleIdentifier))
+                }
             }
         }
     }

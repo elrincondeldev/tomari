@@ -6,12 +6,14 @@ final class MenuBar: NSObject, NSMenuDelegate {
     private let link: AgentLink
     private let strip: StripController
     private let hotKey: LauncherHotKey
+    private let notifier: Notifier
     private let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
 
-    init(link: AgentLink, strip: StripController, hotKey: LauncherHotKey) {
+    init(link: AgentLink, strip: StripController, hotKey: LauncherHotKey, notifier: Notifier) {
         self.link = link
         self.strip = strip
         self.hotKey = hotKey
+        self.notifier = notifier
         super.init()
         item.button?.image = Self.icon()
         item.button?.imagePosition = .imageLeading
@@ -60,10 +62,17 @@ final class MenuBar: NSObject, NSMenuDelegate {
         shortcutItem.submenu = shortcuts
         menu.addItem(shortcutItem)
         menu.addItem(.separator())
-        let answer = entry("Answer permissions from the strip", #selector(toggleAnswerPermissions))
+        let answer = entry("Answer permissions and questions from the strip", #selector(toggleAnswerPermissions))
         answer.state = Preferences.answerPermissions ? .on : .off
-        answer.toolTip = "Click a Claude Code session waiting for permission to see what it asks and allow or deny it"
+        answer.toolTip = "Click a Claude Code session waiting for permission or asking a question to see it and answer it"
         menu.addItem(answer)
+        let notify = entry("Notify when a session needs you", #selector(toggleNotifications))
+        notify.state = Preferences.notifyWhenWaiting ? .on : .off
+        notify.isEnabled = notifier.available
+        notify.toolTip = notifier.available
+            ? "A notification when a session starts waiting on you, with Allow and Deny or the question's options; turn them off for Tomari in System Settings → Notifications too"
+            : "Only when Tomari runs from Tomari.app, as installed by tomari setup"
+        menu.addItem(notify)
 
         let sound = entry("Sound when done", #selector(toggleSound))
         sound.state = Preferences.soundWhenDone ? .on : .off
@@ -127,6 +136,11 @@ final class MenuBar: NSObject, NSMenuDelegate {
     @objc private func toggleAnswerPermissions() {
         Preferences.answerPermissions.toggle()
         strip.refresh()
+    }
+
+    @objc private func toggleNotifications() {
+        Preferences.notifyWhenWaiting.toggle()
+        notifier.authorize()
     }
 
     @objc private func toggleSound() {

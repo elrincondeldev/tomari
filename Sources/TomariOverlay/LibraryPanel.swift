@@ -355,7 +355,7 @@ final class LibraryPanel: NSObject, NSTableViewDataSource, NSTableViewDelegate, 
 }
 
 /// A borderless panel that takes the keyboard without activating the app.
-final class KeyPanel: NSPanel {
+class KeyPanel: NSPanel {
     var onCancel: (() -> Void)?
 
     override var canBecomeKey: Bool { true }

@@ -11,6 +11,14 @@ export interface Job {
   log: string;
 }
 
+/**
+ * The strip ships as an app bundle, so macOS lets it post notifications; launchd runs the executable inside it.
+ * Its bundle id differs from the defaults domain it keeps its preferences in (OVERLAY_DEFAULTS), which predates it.
+ */
+export const OVERLAY_APP = "Tomari.app";
+export const OVERLAY_BUNDLE_ID = "com.elrincondeldev.tomari.overlay";
+export const OVERLAY_EXECUTABLE = "tomari-overlay";
+
 export const LEGACY_AGENT_LABEL = "com.claude-panel.agent";
 export const PERCH_LABELS = ["com.elrincondeldev.perch.agent", "com.elrincondeldev.perch.overlay"];
 
@@ -29,7 +37,7 @@ export function tomariJobs({ binDir, logDir }: { binDir: string; logDir: string 
     },
     {
       label: "com.elrincondeldev.tomari.overlay",
-      program: [`${binDir}/tomari-overlay`],
+      program: [`${binDir}/${OVERLAY_APP}/Contents/MacOS/${OVERLAY_EXECUTABLE}`],
       keepAlive: "after-crash",
       log: `${logDir}/overlay.log`,
     },

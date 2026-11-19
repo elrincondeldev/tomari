@@ -25,13 +25,20 @@ public struct CharacterTemplate: Decodable, Sendable {
 
     /// The default comes first. The JSON ships inside the package, so failing to read it is a build bug.
     public static let all: [CharacterTemplate] = {
-        guard let url = Bundle.module.url(forResource: "characters", withExtension: "json"),
+        guard let url = resources.url(forResource: "characters", withExtension: "json"),
               let data = try? Data(contentsOf: url),
               let characters = try? JSONDecoder().decode([CharacterTemplate].self, from: data),
               !characters.isEmpty
         else { fatalError("characters.json is missing or malformed in the TomariCore bundle") }
         return characters
     }()
+
+    /// The package's resources: in the app bundle's Resources, where SwiftPM's own lookup doesn't look, else
+    /// beside the executable or in the build folder.
+    private static var resources: Bundle {
+        if let url = Bundle.main.resourceURL?.appendingPathComponent("Tomari_TomariCore.bundle"), let bundle = Bundle(url: url) { return bundle }
+        return Bundle.module
+    }
 
     public static func named(_ id: String) -> CharacterTemplate {
         all.first { $0.id == id } ?? all[0]

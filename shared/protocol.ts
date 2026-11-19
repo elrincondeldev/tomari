@@ -41,14 +41,30 @@ export type SessionAgent = "claude" | "codex" | (string & {});
 /** Sessions of an agent other than Claude Code start as this character, so they stand apart on the strip. */
 export const CODEX_ICON: SessionIcon = { character: "robot", color: DEFAULT_ICON.color };
 
+/** One of the questions Claude asks with AskUserQuestion, to answer with one of its options (or several, if multiSelect). */
+export interface PromptQuestion {
+  question: string;
+  /** A short label, e.g. "Framework". */
+  header: string;
+  options: { label: string; description: string }[];
+  multiSelect: boolean;
+}
+
 /** A permission prompt the strip can answer, while Claude Code waits on it. */
 export interface PermissionPrompt {
   /** Names this request in the answer; a new id for each request. */
   id: string;
-  /** e.g. "Bash", "Edit", "mcp__github__create_issue". */
+  /** e.g. "Bash", "Edit", "mcp__github__create_issue", "AskUserQuestion". */
   tool: string;
   /** What it asks to do, in full: the command, file, URL or input. */
   detail: string;
+  /**
+   * What "always allow" would add, as Claude Code suggests it, e.g. "Bash(npm test:*) in this project";
+   * absent when Claude suggests nothing the strip offers.
+   */
+  always?: string;
+  /** For AskUserQuestion: the questions to answer, in order, instead of allowing or denying. */
+  questions?: PromptQuestion[];
 }
 
 export interface PanelSession {
@@ -110,5 +126,7 @@ export type ClientMessage =
   | { type: "library" }
   | { type: "terminal" } // opens a shell in a new Terminal.app tab, without Claude
   | { type: "new"; cwd: string; agent: SessionAgent } // starts a session of `agent` ("claude" or "codex") in a folder some session ran in
-  | { type: "permission"; id: string; request: string; allow: boolean } // answers the session's permission prompt `request`
+  // Answers the session's permission prompt `request`. `always` also adds the rule in its `always`; `answers`, for
+  // a prompt with questions, holds the index of each chosen option, per question, in order.
+  | { type: "permission"; id: string; request: string; allow: boolean; always?: boolean; answers?: number[][] }
   | { type: "frontApp"; app: FrontApp }; // sent on connect and when the app in front changes, so the agent asks Terminal only while it is in front

@@ -400,14 +400,26 @@ describe("parseClientMessage", () => {
     });
   });
 
-  test("permission takes a session, a request id and a boolean, nothing else", () => {
+  test("permission takes a session, a request id, allow, and optionally always and option indexes, nothing else", () => {
     const R = "11111111-1111-4111-8111-111111111111";
-    expect(parseClientMessage(JSON.stringify({ type: "permission", id: A, request: R, allow: true, always: true }))).toEqual({
+    expect(parseClientMessage(JSON.stringify({ type: "permission", id: A, request: R, allow: true, extra: 1 }))).toEqual({
       type: "permission",
       id: A,
       request: R,
       allow: true,
     });
+    expect(parseClientMessage(JSON.stringify({ type: "permission", id: A, request: R, allow: true, always: true, answers: [[0], [1, 2]] }))).toEqual({
+      type: "permission",
+      id: A,
+      request: R,
+      allow: true,
+      always: true,
+      answers: [[0], [1, 2]],
+    });
+    expect(parseClientMessage(JSON.stringify({ type: "permission", id: A, request: R, allow: true, always: "yes" }))).toBeNull();
+    for (const answers of [[0], [["0"]], [[-1]], [[1.5]], [[99]], "x", Array(9).fill([0])]) {
+      expect(parseClientMessage(JSON.stringify({ type: "permission", id: A, request: R, allow: true, answers }))).toBeNull();
+    }
     expect(parseClientMessage(JSON.stringify({ type: "permission", id: A, request: R, allow: "yes" }))).toBeNull();
     expect(parseClientMessage(JSON.stringify({ type: "permission", id: A, request: "x", allow: false }))).toBeNull();
     expect(parseClientMessage(JSON.stringify({ type: "permission", id: A, allow: false }))).toBeNull();
