@@ -593,9 +593,11 @@ test("a new session starts only in a folder some session ran in, and only one th
     desktopSessions = async () => [{ ...DESKTOP[0]!, cwd: folder }];
     const { ws, next } = await connect();
     await next(); // snapshot
-    ws.send(JSON.stringify({ type: "new", cwd: folder, agent: "codex" }));
     ws.send(JSON.stringify({ type: "new", cwd: "/etc", agent: "claude" }));
     expect(await next()).toEqual({ type: "error", message: "unknown folder" });
+    ws.send(JSON.stringify({ type: "new", cwd: folder, agent: "codex" }));
+    // A started session sends nothing back: wait for it to reach the runner.
+    for (let i = 0; i < 100 && started.length === 0; i++) await Bun.sleep(10);
     expect(started).toEqual([[folder, "codex"]]);
 
     rmSync(folder, { recursive: true });
