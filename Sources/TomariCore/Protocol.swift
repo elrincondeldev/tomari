@@ -259,6 +259,8 @@ public enum ClientMessage: Equatable, Sendable {
     case library
     /// Opens a shell, without Claude, in a new Terminal.app tab.
     case terminal
+    /// Starts a new session of `agent` ("claude" or "codex") in `cwd`, a folder some session ran in.
+    case newSession(cwd: String, agent: String)
     /// Stops a live background session; its conversation is kept.
     case stop(id: String)
     /// Sent on connect and whenever the app in front changes kind.
@@ -270,7 +272,7 @@ public enum ClientMessage: Equatable, Sendable {
     public var sessionId: String? {
         switch self {
         case .open(let id), .pin(let id, _), .icon(let id, _), .stop(let id), .permission(let id, _, _, _, _): return id
-        case .library, .terminal, .frontApp: return nil
+        case .library, .terminal, .frontApp, .newSession: return nil
         }
     }
 
@@ -289,6 +291,8 @@ public enum ClientMessage: Equatable, Sendable {
             object = ["type": "terminal"]
         case .stop(let id):
             object = ["type": "stop", "id": id]
+        case .newSession(let cwd, let agent):
+            object = ["type": "new", "cwd": cwd, "agent": agent]
         case .frontApp(let kind):
             object = ["type": "frontApp", "app": kind.rawValue]
         case .permission(let id, let request, let allow, let always, let answers):

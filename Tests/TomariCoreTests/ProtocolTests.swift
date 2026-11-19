@@ -80,6 +80,7 @@ func protocolTests() {
         expectEqual(try object(.open(id: "abc")), ["type": "open", "id": "abc"])
         expectEqual(try object(.library), ["type": "library"])
         expectEqual(try object(.terminal), ["type": "terminal"])
+        expectEqual(try object(.newSession(cwd: "/src/api", agent: "codex")), ["type": "new", "cwd": "/src/api", "agent": "codex"])
         expectEqual(try object(.stop(id: "abc")), ["type": "stop", "id": "abc"])
         expectEqual(try object(.pin(id: "abc", pinned: true)), ["type": "pin", "id": "abc", "pinned": true])
         expectEqual(try object(.permission(id: "abc", request: "r1", allow: false)), ["type": "permission", "id": "abc", "request": "r1", "allow": false])
@@ -104,6 +105,7 @@ func protocolTests() {
         }
         expectEqual(ClientMessage.library.sessionId, nil)
         expectEqual(ClientMessage.terminal.sessionId, nil)
+        expectEqual(ClientMessage.newSession(cwd: "/a", agent: "claude").sessionId, nil)
     }
 
     test("decodes the session kind, and a message without one") {

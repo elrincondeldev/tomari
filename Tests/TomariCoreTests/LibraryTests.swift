@@ -111,6 +111,29 @@ func launcherTests() {
         let empty = LibraryBrowser(entries: [entry("a")], onStrip: [], preferredAgent: LibraryGroup.onStrip)
         expectEqual(empty.agent, "claude")
     }
+
+    test("the launcher's New tab lists each folder once, the most recently used first, after the agents") {
+        func at(_ name: String, _ cwd: String, _ seconds: Double, agent: String? = nil) -> LibraryEntry {
+            LibraryEntry(id: UUID().uuidString, name: name, cwd: cwd, lastActivityAt: now.addingTimeInterval(seconds), pinned: false, agent: agent)
+        }
+        let entries = [at("a", "/src/api", -300), at("b", "/src/web", -60, agent: "codex"), at("c", "/src/api", -10), at("d", "relative", 0)]
+        let strip = [session(name: "s", state: .working, stateSince: now.addingTimeInterval(-30))] // in /tmp
+        let projects = projectFolders(entries, onStrip: strip)
+        expectEqual(projects.map(\.cwd), ["/src/api", "/tmp", "/src/web"])
+        expectEqual(projects[0].name, "api")
+        expectEqual(projects[0].id, "/src/api")
+        expectEqual(projects[0].lastActivityAt, now.addingTimeInterval(-10))
+        expectEqual(projectFolders(entries, limit: 1).map(\.cwd), ["/src/api"])
+
+        let groups = libraryGroups(entries, onStrip: strip, projects: projects)
+        expectEqual(groups.map(\.title), ["On strip", "Claude", "Codex", "New"])
+        expectEqual(groups.last?.agent, LibraryGroup.newSession)
+        expectEqual(libraryGroups(entries).map(\.title), ["Claude", "Codex"])
+        var browser = LibraryBrowser(entries: entries, projects: projects)
+        browser.select(tab: 2)
+        browser.search("web")
+        expectEqual(browser.selected?.cwd, "/src/web")
+    }
 }
 
 func launcherShortcutTests() {

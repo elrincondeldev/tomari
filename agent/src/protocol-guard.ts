@@ -40,6 +40,11 @@ export function parseClientMessage(raw: string): ClientMessage | null {
   if (typeof msg !== "object" || msg === null) return null;
   if (msg.type === "library") return { type: "library" };
   if (msg.type === "terminal") return { type: "terminal" };
+  if (msg.type === "new") {
+    const { cwd, agent } = msg;
+    const folder = typeof cwd === "string" && cwd.startsWith("/") && cwd.length <= 1024 && !cwd.includes("\0");
+    return folder && (agent === "claude" || agent === "codex") ? { type: "new", cwd, agent } : null;
+  }
   if (msg.type === "frontApp") {
     const app = FRONT_APPS.find((known) => known === msg.app);
     return app ? { type: "frontApp", app } : null;

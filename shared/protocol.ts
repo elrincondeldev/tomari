@@ -125,6 +125,7 @@ export type ClientMessage =
   | { type: "icon"; id: string; icon: SessionIcon } // pins the session if it isn't yet
   | { type: "library" }
   | { type: "terminal" } // opens a shell in a new Terminal.app tab, without Claude
+  | { type: "new"; cwd: string; agent: SessionAgent } // starts a session of `agent` ("claude" or "codex") in a folder some session ran in
   // Answers the session's permission prompt `request`. `always` also adds the rule in its `always`; `answers`, for
   // a prompt with questions, holds the index of each chosen option, per question, in order.
   | { type: "permission"; id: string; request: string; allow: boolean; always?: boolean; answers?: number[][] }
