@@ -60,9 +60,9 @@ final class MenuBar: NSObject, NSMenuDelegate {
         shortcutItem.submenu = shortcuts
         menu.addItem(shortcutItem)
         menu.addItem(.separator())
-        let answer = entry("Answer permissions from the strip", #selector(toggleAnswerPermissions))
+        let answer = entry("Answer permissions and questions from the strip", #selector(toggleAnswerPermissions))
         answer.state = Preferences.answerPermissions ? .on : .off
-        answer.toolTip = "Click a Claude Code session waiting for permission to see what it asks and allow or deny it"
+        answer.toolTip = "Click a Claude Code session waiting for permission or asking a question to see it and answer it"
         menu.addItem(answer)
 
         let sound = entry("Sound when done", #selector(toggleSound))

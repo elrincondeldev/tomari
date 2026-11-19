@@ -84,6 +84,14 @@ func protocolTests() {
         expectEqual(try object(.pin(id: "abc", pinned: true)), ["type": "pin", "id": "abc", "pinned": true])
         expectEqual(try object(.permission(id: "abc", request: "r1", allow: false)), ["type": "permission", "id": "abc", "request": "r1", "allow": false])
         expectEqual(
+            try object(.permission(id: "abc", request: "r1", allow: true, always: true)),
+            ["type": "permission", "id": "abc", "request": "r1", "allow": true, "always": true]
+        )
+        expectEqual(
+            try object(.permission(id: "abc", request: "r1", allow: true, answers: [[1], [0, 2]])),
+            ["type": "permission", "id": "abc", "request": "r1", "allow": true, "answers": [[1], [0, 2]]]
+        )
+        expectEqual(
             try object(.icon(id: "abc", icon: SessionIcon(character: "cat", color: "#4f7cff"))),
             ["type": "icon", "id": "abc", "icon": ["character": "cat", "color": "#4f7cff"]]
         )
@@ -129,6 +137,17 @@ func protocolTests() {
         expectEqual(a.permission, PermissionPrompt(id: "r1", tool: "Bash", detail: "git push"))
         expectEqual(b.permission, nil)
         expectEqual(c.permission, nil)
+    }
+
+    test("decodes always allow and the questions; questions it can't read leave none to answer") {
+        let prompt = #"{"id":"r1","tool":"AskUserQuestion","detail":"Which?","always":"Bash(ls) in this project","questions":[{"question":"Which?","header":"Pick","options":[{"label":"A","description":"first"},{"label":"B","description":""}],"multiSelect":true}]}"#
+        let odd = #"{"id":"r1","tool":"AskUserQuestion","detail":"Which?","questions":[{"question":7}]}"#
+        let decode = { (json: String) in try JSONDecoder().decode(PermissionPrompt.self, from: Data(json.utf8)) }
+        let a = try decode(prompt)
+        expectEqual(a.always, "Bash(ls) in this project")
+        expectEqual(a.questions, [PromptQuestion(question: "Which?", header: "Pick", options: [.init(label: "A", description: "first"), .init(label: "B")], multiSelect: true)])
+        expectEqual(try decode(odd).questions, [])
+        expectEqual(try decode(#"{"id":"r1","tool":"Bash","detail":"ls"}"#).questions, nil)
     }
 
     test("the hover name says which agent runs the session") {
