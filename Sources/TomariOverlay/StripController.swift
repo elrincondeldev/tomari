@@ -196,6 +196,19 @@ final class StripController {
         }
     }
 
+    /// A click on a session's notification: its card beside the creature when there is a prompt to answer and the
+    /// strip shows it, else the session itself.
+    func answerOrOpen(_ id: String) {
+        if !hidden, !collapsed, let index = shown.firstIndex(where: { $0.id == id }), let prompt = answerable(shown[index]) {
+            hover(nil)
+            PermissionCard.show(for: shown[index], prompt: prompt, beside: view.screenFrame(ofCell: index), edge: edge) { [link] message in
+                link.send(message)
+            }
+        } else {
+            link.send(.open(id: id))
+        }
+    }
+
     /// The permission prompt or question a click answers, when the session waits on one and the preference is on.
     /// Questions this version can't read are left to the session.
     private func answerable(_ session: PanelSession) -> PermissionPrompt? {
@@ -281,6 +294,12 @@ enum Preferences {
     static var answerPermissions: Bool {
         get { store.object(forKey: "answerPermissions") as? Bool ?? true }
         set { store.set(newValue, forKey: "answerPermissions") }
+    }
+
+    /// A notification when a session starts waiting on the user, with buttons to answer it; on until the user turns it off.
+    static var notifyWhenWaiting: Bool {
+        get { store.object(forKey: "notifyWhenWaiting") as? Bool ?? true }
+        set { store.set(newValue, forKey: "notifyWhenWaiting") }
     }
 
     /// Sessions that still have the default color take one derived from their project; off until the user turns it on.

@@ -44,6 +44,7 @@ You need the Claude desktop app (sessions in its Code tab), the Claude Code CLI 
 - **Background sessions** (`claude --bg`) run in a terminal the Claude daemon owns, so clicking one attaches it with `claude attach` in a new Terminal tab. Right-click one and choose **Stop session** to run `claude stop` (it asks first if the session is busy); the conversation is kept.
 - **Right-click** (or control-click) to pin or unpin the session, open its folder in Finder (shown only while the folder exists) and pick its character and color.
 - **Launcher**: press **⌥Space** anywhere to open the + panel in the middle of the screen, with a first **On strip** tab that lists the strip's sessions, those waiting for you on top, longest wait first, each with what it is doing. Type to filter, Return opens the session where it lives (its Terminal tab, the Claude desktop app or Codex), ⌘Return pins or unpins it, and the Claude and Codex tabs open any session of the library the same way. Press the shortcut again or Esc to close. Pick your own under **Launcher Shortcut → Record Shortcut…** in the menu bar item: press any key with ⌘, ⌃ or ⌥, or an F-key alone, and it is saved at once, unless another app already uses it. ⌥ alone only goes with keys that type nothing (Space, arrows, Return…), since ⌥ with a letter or number types a character, such as @ on a Spanish keyboard. The same submenu goes back to ⌥Space or turns the shortcut off. It is a Carbon hot key, so it needs no Accessibility permission.
+- **Notifications**: when a session starts waiting on you, macOS shows a notification (Tomari asks for permission the first time). A permission prompt comes with **Allow**, **Always Allow** (when Claude suggests a rule) and **Deny**, and a single question with up to four options with one button per option, so you can answer from the banner, even with the strip hidden; clicking the notification itself shows the card beside the creature, or opens the session. A new prompt replaces the session's notification, and it goes away once the session moves on, however you answered. None for the session you are looking at in Terminal or the Claude desktop app, nor for sessions already waiting when Tomari starts. On by default; turn it off from the menu bar icon, or for Tomari in System Settings → Notifications.
 - **Sound when done**: off by default; turn it on from the menu bar icon to hear a short chime when a session finishes working. It stays quiet for the session you are looking at in Terminal or the Claude desktop app.
 - **Sound when waiting for you**: off by default; turn it on from the menu bar icon to hear a different chime (Ping) when a session starts needing your permission or input. Same rules as the done chime: quiet for the session you are looking at.
 - **Color by project**: off by default; turn it on from the menu bar icon to give each project its own color, so sessions in the same folder (or the same repo, for Claude worktrees under `.claude/worktrees`) look alike. It only applies to creatures still in the default color; one you colored yourself keeps its color.
@@ -60,7 +61,7 @@ claude agents ─ poll ─▶  └ SQLite: pins, icons
 ```
 
 - **`tomari`** (`agent/`, Bun and TypeScript compiled into one binary) holds the CLI and the agent. The agent tracks every session's state from Claude Code hooks and `claude agents --json`, keeps pins and icons in SQLite, and opens sessions in the desktop app. It listens on 127.0.0.1 only.
-- **`tomari-overlay`** (`Sources/`, Swift) is a native AppKit and Core Animation app that runs as an accessory: no Dock icon, just the strip and a menu bar item. It costs about 0.5 % of one CPU core and 13 MB of memory while it animates.
+- **`tomari-overlay`** (`Sources/`, Swift) is a native AppKit and Core Animation app that runs as an accessory: no Dock icon, just the strip and a menu bar item. Releases wrap it in `Tomari.app` (an agent app, `LSUIElement`), since macOS only lets app bundles post notifications; built with `swift build` it runs bare, without them. It costs about 0.5 % of one CPU core and 13 MB of memory while it animates.
 - **`shared/protocol.ts`** is the contract between them.
 
 | What the agent reads from Claude | Used for | Documented? |
@@ -146,12 +147,13 @@ On Vercel, import the repository and set its Root Directory to `site`; Vercel de
 - Tomari keeps its data in `~/Library/Application Support/tomari/`, its logs in `~/Library/Logs/tomari/`, and the strip's edge in the `com.elrincondeldev.tomari` defaults.
 - When several untitled sessions share a folder name, the strip tells them apart with the first 24 characters of each one's first prompt. It is kept in memory only, never written to disk, but it is visible on screen like the hover label below.
 - The hover label can show tool details such as a shell command, so anyone who can see your screen can read them.
+- Notifications show the command or question a session waits on, and macOS keeps them in Notification Center and may show them on the lock screen; choose how they show for Tomari in System Settings → Notifications. Nothing leaves your Mac.
 - The permission card shows the full command or input a session asks to run, or its questions, kept in memory only, like the hover label. Always allow only ever adds the rule Claude itself suggested for that request, never a mode change.
 
 ## Roadmap
 
 - Homebrew: `brew install elrincondeldev/tap/tomari`, from the same release binaries.
-- Drag the strip to any edge, global shortcuts to open sessions, and notifications when a session needs you.
+- Drag the strip to any edge.
 
 ## License
 

@@ -8,6 +8,7 @@ import { $ } from "bun";
 import { cp, mkdir, rm } from "node:fs/promises";
 import { dirname } from "node:path";
 import { parseArgs } from "node:util";
+import { OVERLAY_APP, OVERLAY_BUNDLE_ID, OVERLAY_EXECUTABLE } from "../agent/src/launchd.ts";
 
 const ROOT = dirname(import.meta.dir);
 const DIST = `${ROOT}/dist/npm`;
@@ -35,11 +36,17 @@ for (const arch of archs) {
   const swiftArch = ARCHS[arch].swift;
   await $`swift build -c release --arch ${swiftArch} --product tomari-overlay`.cwd(ROOT);
   const swiftBin = (await $`swift build -c release --arch ${swiftArch} --show-bin-path`.cwd(ROOT).text()).trim();
-  await cp(`${swiftBin}/tomari-overlay`, `${bin}/tomari-overlay`);
-  await cp(`${swiftBin}/Tomari_TomariCore.bundle`, `${bin}/Tomari_TomariCore.bundle`, { recursive: true });
+  // The strip is an app bundle so it may post notifications: the executable, its resources, and an Info.plist.
+  const app = `${bin}/${OVERLAY_APP}/Contents`;
+  await mkdir(`${app}/MacOS`, { recursive: true });
+  await mkdir(`${app}/Resources`, { recursive: true });
+  await cp(`${swiftBin}/${OVERLAY_EXECUTABLE}`, `${app}/MacOS/${OVERLAY_EXECUTABLE}`);
+  await cp(`${swiftBin}/Tomari_TomariCore.bundle`, `${app}/Resources/Tomari_TomariCore.bundle`, { recursive: true });
+  await Bun.write(`${app}/Info.plist`, overlayInfoPlist(version));
 
   // Ad-hoc signatures: enough for binaries that npm and Homebrew deliver without quarantine.
-  await $`codesign --force --sign - ${`${bin}/tomari`} ${`${bin}/tomari-overlay`}`;
+  await $`codesign --force --sign - ${`${bin}/tomari`}`;
+  await $`codesign --force --sign - ${`${bin}/${OVERLAY_APP}`}`;
 
   await Bun.write(
     `${DIST}/${name}/package.json`,
@@ -62,5 +69,27 @@ const readme = await Bun.file(`${ROOT}/README.md`).text();
 await Bun.write(`${main}/README.md`, readme.replaceAll('src="images/', 'src="https://raw.githubusercontent.com/elrincondeldev/tomari/main/images/'));
 const optionalDependencies = Object.fromEntries(Object.keys(ARCHS).map((arch) => [`${SCOPE}/tomari-darwin-${arch}`, version]));
 await Bun.write(`${main}/package.json`, JSON.stringify({ ...launcher, version, optionalDependencies }, null, 2) + "\n");
+
+/** An agent app (LSUIElement): no Dock icon or menu, as the executable ran before. */
+function overlayInfoPlist(version: string) {
+  const short = version.replace(/-.*$/, "");
+  return `<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>CFBundleIdentifier</key><string>${OVERLAY_BUNDLE_ID}</string>
+  <key>CFBundleName</key><string>Tomari</string>
+  <key>CFBundleDisplayName</key><string>Tomari</string>
+  <key>CFBundleExecutable</key><string>${OVERLAY_EXECUTABLE}</string>
+  <key>CFBundlePackageType</key><string>APPL</string>
+  <key>CFBundleShortVersionString</key><string>${short}</string>
+  <key>CFBundleVersion</key><string>${short}</string>
+  <key>LSMinimumSystemVersion</key><string>14.0</string>
+  <key>LSUIElement</key><true/>
+  <key>NSHighResolutionCapable</key><true/>
+</dict>
+</plist>
+`;
+}
 
 console.log(`Built ${version} for ${archs.join(", ")} in ${DIST}`);
