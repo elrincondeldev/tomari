@@ -128,6 +128,16 @@ func protocolTests() {
         expectEqual(b.agent, nil)
     }
 
+    test("decodes whether the Codex app started the session; absent means no") {
+        let inApp = sessionJSON.replacingOccurrences(of: #""icon":"#, with: #""agent":"codex","inCodexApp":true,"icon":"#)
+        guard case .session(let a)? = ServerMessage.parse(#"{"type":"session","session":\#(inApp)}"#),
+              case .session(let b)? = ServerMessage.parse(#"{"type":"session","session":\#(sessionJSON)}"#) else {
+            return expect(false, "not a session message")
+        }
+        expect(a.startedInCodexApp, "in the app")
+        expect(!b.startedInCodexApp, "no field")
+    }
+
     test("decodes the permission prompt the strip can answer; one it can't read is left out, not the session") {
         let asking = sessionJSON.replacingOccurrences(of: #""icon":"#, with: #""permission":{"id":"r1","tool":"Bash","detail":"git push"},"icon":"#)
         let odd = sessionJSON.replacingOccurrences(of: #""icon":"#, with: #""permission":{"id":42},"icon":"#)

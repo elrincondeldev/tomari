@@ -101,4 +101,21 @@ func noticeTests() {
         var gone = NoticeTracker()
         expectEqual(gone.update([closed], initial: false, focusedId: nil, frontApp: .other, answers: true).post, [])
     }
+
+    test("while the Codex app is in front, a thread it started gets no notice and any other session still does") {
+        var inApp = waiting(bash)
+        inApp.agent = "codex"
+        inApp.startedInCodexApp = true
+        var cli = waiting(bash)
+        cli.agent = "codex"
+        let claude = waiting(bash)
+        var quiet = NoticeTracker()
+        expectEqual(quiet.update([inApp], initial: false, focusedId: nil, frontApp: .codex, answers: true).post, [])
+        var cliTracker = NoticeTracker()
+        expectEqual(cliTracker.update([cli], initial: false, focusedId: nil, frontApp: .codex, answers: true).post.count, 1)
+        var claudeTracker = NoticeTracker()
+        expectEqual(claudeTracker.update([claude], initial: false, focusedId: claude.id, frontApp: .codex, answers: true).post.count, 1)
+        var away = NoticeTracker()
+        expectEqual(away.update([inApp], initial: false, focusedId: nil, frontApp: .other, answers: true).post.count, 1)
+    }
 }

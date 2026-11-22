@@ -52,4 +52,17 @@ func waitingChimeTests() {
         var other = WaitingChime()
         expect(other.shouldChime(for: entered(.needsInput, a), previous: a, focusedId: a.id, frontApp: .other, at: now), "focused but its app not in front")
     }
+
+    test("while the Codex app is in front, a thread it started is quiet and any other session still chimes") {
+        var chime = WaitingChime()
+        let inApp = session(state: .working, agent: "codex", startedInCodexApp: true)
+        let cli = session(state: .working, agent: "codex")
+        let claude = session(state: .working)
+        expect(!chime.shouldChime(for: entered(.needsInput, inApp), previous: inApp, focusedId: nil, frontApp: .codex, at: now), "started in the Codex app")
+        expect(chime.shouldChime(for: entered(.needsInput, cli), previous: cli, focusedId: nil, frontApp: .codex, at: now + 0.1), "started in the CLI")
+        var other = WaitingChime()
+        expect(other.shouldChime(for: entered(.needsInput, claude), previous: claude, focusedId: claude.id, frontApp: .codex, at: now), "a Claude session")
+        var away = WaitingChime()
+        expect(away.shouldChime(for: entered(.needsInput, inApp), previous: inApp, focusedId: nil, frontApp: .other, at: now), "the Codex app is not in front")
+    }
 }

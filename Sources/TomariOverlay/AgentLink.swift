@@ -54,7 +54,7 @@ final class AgentLink {
 
     /// Without an argument it asks the system what is in front, as on connecting.
     private func reportFrontApp(bundleId: String? = NSWorkspace.shared.frontmostApplication?.bundleIdentifier) {
-        guard status == .online, let task, let kind = frontReporter.next(FrontAppKind(bundleId: bundleId)) else { return }
+        guard status == .online, let task, let kind = frontReporter.next(FrontAppKind(bundleId: bundleId).reportedToAgent) else { return }
         task.send(.string(ClientMessage.frontApp(kind).json)) { _ in }
     }
 

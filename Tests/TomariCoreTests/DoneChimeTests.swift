@@ -69,4 +69,17 @@ func doneChimeTests() {
         expect(!chime.shouldChime(for: finished(a), previous: a, focusedId: a.id, frontApp: .desktop, at: now), "desktop app in front")
         expect(chime.shouldChime(for: finished(a), previous: a, focusedId: nil, frontApp: .desktop, at: now), "another session is focused")
     }
+
+    test("while the Codex app is in front, a thread it started is quiet and any other session still chimes") {
+        var chime = DoneChime()
+        let inApp = session(state: .working, agent: "codex", startedInCodexApp: true)
+        let cli = session(state: .working, agent: "codex")
+        let claude = session(state: .working)
+        expect(!chime.shouldChime(for: finished(inApp), previous: inApp, focusedId: nil, frontApp: .codex, at: now), "started in the Codex app")
+        expect(chime.shouldChime(for: finished(cli), previous: cli, focusedId: nil, frontApp: .codex, at: now + 0.1), "started in the CLI")
+        var other = DoneChime()
+        expect(other.shouldChime(for: finished(claude), previous: claude, focusedId: claude.id, frontApp: .codex, at: now), "a Claude session")
+        var away = DoneChime()
+        expect(away.shouldChime(for: finished(inApp), previous: inApp, focusedId: nil, frontApp: .other, at: now), "the Codex app is not in front")
+    }
 }

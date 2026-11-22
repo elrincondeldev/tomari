@@ -5,14 +5,14 @@
 import { timingSafeEqual } from "node:crypto";
 import { stat } from "node:fs/promises";
 import { basename } from "node:path";
-import { BACKGROUND_KIND, type LibraryEntry, type ServerMessage } from "../../shared/protocol.ts";
+import { BACKGROUND_KIND, type LibraryEntry, type PanelSession, type ServerMessage } from "../../shared/protocol.ts";
 import { desktopSessionsLister, type DesktopSession } from "./desktop-sessions.ts";
 import type { SessionHub } from "./hub.ts";
-import { openSession, openTerminalTab, planNew, run, type OpenOptions, type OpenResult } from "./open-session.ts";
+import { openSession, openTerminalTab, planNew, resumedCodex, run, type OpenOptions, type OpenResult } from "./open-session.ts";
 import { parseClientMessage } from "./protocol-guard.ts";
 import { stopSession } from "./stop-session.ts";
 import type { HookEvent, HookOrigin } from "./state.ts";
-import { codexAdmission, codexPidResolver, codexThreads, type CodexThread } from "./codex.ts";
+import { codexAdmission, codexPidResolver, codexThreads, startedInCodexApp, type CodexThread } from "./codex.ts";
 import { PID_HEADER } from "./hooks-config.ts";
 import { FrontApp } from "./front-app.ts";
 import { answerable, PermissionDesk, HOLD_MS } from "./permissions.ts";
@@ -35,6 +35,8 @@ export interface ServerOptions {
   codexPid?: (reported: number) => Promise<number | null>;
   /** The session the desktop app counts as focused, from its log, or null; opening it again needs a detour. */
   desktopFocus?: () => string | null;
+  /** Whether the Codex app started a Codex session; replaceable so tests don't need rollouts. */
+  inCodexApp?: (sessionId: string, transcriptPath?: string) => Promise<boolean>;
   /** Whether a Codex event belongs to a session worth tracking; replaceable so tests don't need rollouts. */
   admitCodex?: (event: HookEvent, known: boolean) => Promise<boolean>;
   /** Codex's threads, running or not; replaceable so tests don't read Codex's database. */
@@ -59,6 +61,7 @@ export function startServers({
   desktopSessions = desktopSessionsLister(),
   codexPid = codexPidResolver(),
   admitCodex = codexAdmission(),
+  inCodexApp = startedInCodexApp,
   desktopFocus = () => null,
   codexLibrary = () => codexThreads(),
   permissionHoldMs = HOLD_MS,
@@ -116,6 +119,8 @@ export function startServers({
 
   /** Codex sessions already logged as held back, so each one is said once. */
   const heldBack = new Set<string>();
+  /** Codex sessions whose rollout was already read for where they started, so each is read once. */
+  const originChecked = new Set<string>();
 
   /** Sessions with a stop under way: a second request meanwhile would run `claude stop` twice. */
   const stopping = new Set<string>();
@@ -154,6 +159,12 @@ export function startServers({
               return new Response(null, { status: 204 });
             }
             origin.agent = "codex";
+            if (!originChecked.has(event.session_id)) {
+              if (originChecked.size > 500) originChecked.clear();
+              originChecked.add(event.session_id);
+              const path = typeof event.transcript_path === "string" ? event.transcript_path : undefined;
+              if (await inCodexApp(event.session_id, path)) origin.inCodexApp = true;
+            }
             const reported = Number(req.headers.get(PID_HEADER));
             const pid = Number.isSafeInteger(reported) && reported > 1 ? await codexPid(reported) : null;
             if (pid !== null) origin.pid = pid;
@@ -225,15 +236,18 @@ export function startServers({
             case "open": {
               const session = hub.get(msg.id);
               const started = Date.now();
+              const context = hub.openContext(msg.id);
               const result = await open(msg.id, {
                 cwd: session?.cwd,
                 kind: session?.kind,
                 name: hub.titleOf(msg.id) ?? undefined,
                 agent: session?.agent,
-                ...hub.openContext(msg.id),
+                ...context,
                 focusedInDesktop: front.value === "desktop" && desktopFocus() === msg.id,
               });
               console.error(openLogLine(msg.id, result, Date.now() - started));
+              const resumed = codexResumeLogLine(msg.id, session, result, context.pid);
+              if (resumed) console.error(resumed);
               // The desktop log confirms focus a moment later; show it right away.
               if (result.ok) hub.setFocused(msg.id);
               else send(ws, { type: "error", message: result.error });
@@ -299,6 +313,16 @@ export function openLogLine(id: string, result: OpenResult, ms?: number): string
   if (result.ok) return `open ${id.slice(0, 8)}: ok${result.before ? " via needs-input" : ""}${took}`;
   const firstLine = result.error.split("\n")[0] ?? "";
   return `open ${id.slice(0, 8)}: ${firstLine.replace(/\S*\/\S*/g, "<path>").slice(0, 120)}${took}`;
+}
+
+/**
+ * A log line for when an open resumed a Codex session the agent still counts as running, in a new Terminal tab:
+ * its pid was never learned, or is no longer running. Null for any other open. No paths.
+ */
+export function codexResumeLogLine(id: string, session: Pick<PanelSession, "agent" | "live"> | undefined, result: OpenResult, pid: number | null): string | null {
+  if (session?.agent !== "codex" || !session.live || !resumedCodex(result)) return null;
+  const why = pid === null ? "no known pid" : `pid ${pid} no longer running`;
+  return `open ${id.slice(0, 8)}: codex session is live but has ${why}, resuming it in a new Terminal tab`;
 }
 
 function send(ws: { send(data: string): unknown }, message: ServerMessage) {

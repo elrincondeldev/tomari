@@ -116,13 +116,15 @@ public struct PanelSession: Equatable, Identifiable, Sendable {
     public var kind: String?
     /// The coding agent running the session, such as "codex"; nil means Claude Code.
     public var agent: String?
+    /// A Codex session that the Codex app started, as opposed to the Codex CLI.
+    public var startedInCodexApp: Bool
     /// The permission prompt the session waits on that the strip can answer; nil when none.
     public var permission: PermissionPrompt?
 
     public init(
         id: String, name: String, cwd: String, state: SessionState, activity: String?, live: Bool,
         stateSince: Date, pinned: Bool, position: Int?, icon: SessionIcon, kind: String? = nil, agent: String? = nil,
-        permission: PermissionPrompt? = nil
+        startedInCodexApp: Bool = false, permission: PermissionPrompt? = nil
     ) {
         self.id = id
         self.name = name
@@ -136,13 +138,14 @@ public struct PanelSession: Equatable, Identifiable, Sendable {
         self.icon = icon
         self.kind = kind
         self.agent = agent
+        self.startedInCodexApp = startedInCodexApp
         self.permission = permission
     }
 }
 
 extension PanelSession: Decodable {
     private enum Keys: String, CodingKey {
-        case id, name, cwd, state, activity, live, stateSince, pinned, position, icon, kind, agent, permission
+        case id, name, cwd, state, activity, live, stateSince, pinned, position, icon, kind, agent, inCodexApp, permission
     }
 
     public init(from decoder: Decoder) throws {
@@ -161,6 +164,7 @@ extension PanelSession: Decodable {
             icon: try c.decode(SessionIcon.self, forKey: .icon),
             kind: try? c.decodeIfPresent(String.self, forKey: .kind),
             agent: try? c.decodeIfPresent(String.self, forKey: .agent),
+            startedInCodexApp: (try? c.decodeIfPresent(Bool.self, forKey: .inCodexApp)) ?? false,
             permission: try? c.decodeIfPresent(PermissionPrompt.self, forKey: .permission)
         )
     }

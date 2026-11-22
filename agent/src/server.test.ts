@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, expect, test } from "bun:test";
+import { afterEach, beforeEach, expect, spyOn, test } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import type { ServerMessage } from "../../shared/protocol.ts";
@@ -6,11 +6,12 @@ import type { DesktopSession } from "./desktop-sessions.ts";
 import { FrontApp } from "./front-app.ts";
 import { SessionHub } from "./hub.ts";
 import { planOpen, type OpenResult } from "./open-session.ts";
-import { openLogLine, startServers } from "./server.ts";
+import { codexResumeLogLine, openLogLine, startServers } from "./server.ts";
 import type { CodexThread } from "./codex.ts";
 import { Store } from "./store.ts";
 
 const ID = "0603472f-b7c5-4dae-b7a1-142468264b30";
+const APP_THREAD = "44444444-4444-4444-8444-444444444444";
 const TOKEN = "test-token";
 
 const IDLE = "22222222-2222-4222-8222-222222222222";
@@ -29,11 +30,13 @@ let desktopSessions: () => Promise<DesktopSession[]>;
 let terminal: () => Promise<OpenResult>;
 let codexLibrary: () => Promise<CodexThread[]>;
 let started: [cwd: string, agent: string][];
+let openResult: OpenResult | null;
 
 beforeEach(() => {
   opened = [];
   stopped = [];
   started = [];
+  openResult = null;
   stop = async (id) => {
     stopped.push(id);
     return { ok: true, command: ["fake-stop", id] };
@@ -51,13 +54,14 @@ beforeEach(() => {
     panelPort: 0,
     open: async (id, { cwd, kind, name } = {}) => {
       opened.push([id, cwd, kind, name]);
-      return { ok: true, command: ["fake-open", id] };
+      return openResult ?? { ok: true, command: ["fake-open", id] };
     },
     desktopSessions: () => desktopSessions(),
     terminal: () => terminal(),
     stop: (id) => stop(id),
     codexPid: async (reported) => (reported === 4242 ? 4200 : null),
     admitCodex: async (event) => event.hook_event_name !== "SessionStart",
+    inCodexApp: async (id) => id === APP_THREAD,
     codexLibrary: () => codexLibrary(),
     newSession: async (cwd, agent) => {
       started.push([cwd, agent]);
@@ -442,6 +446,39 @@ test("openLogLine: one line per open request, without paths", () => {
   expect(openLogLine(id, { ok: false, error: "" })).toBe("open 01234567: ");
 });
 
+/** What opening a Codex session with no running process plans: the real resume command. */
+const resumePlan = () => planOpen(ID, { agent: "codex", cwd: "/tmp/demo", pid: null, inCodexApp: async () => false });
+
+test("codexResumeLogLine: says why a live Codex session was resumed, and says nothing for any other open", async () => {
+  const resume = await resumePlan();
+  const live = { agent: "codex", live: true } as const;
+  const line = (why: string) => `open 0603472f: codex session is live but has ${why}, resuming it in a new Terminal tab`;
+  expect(codexResumeLogLine(ID, live, resume, null)).toBe(line("no known pid"));
+  expect(codexResumeLogLine(ID, live, resume, 4200)).toBe(line("pid 4200 no longer running"));
+  const focus: OpenResult = { ok: true, command: ["osascript", "-e", "focus tab", "/dev/ttys007"] };
+  expect(codexResumeLogLine(ID, live, focus, 4200)).toBeNull(); // focused by its pid
+  expect(codexResumeLogLine(ID, { ...live, live: false }, resume, null)).toBeNull(); // closed: resuming is expected
+  expect(codexResumeLogLine(ID, live, { ok: true, command: ["open", `codex://threads/${ID}`] }, null)).toBeNull(); // the Codex app
+  expect(codexResumeLogLine(ID, { agent: undefined, live: true }, resume, null)).toBeNull(); // Claude
+  expect(codexResumeLogLine(ID, live, { ok: false, error: "timed out" }, null)).toBeNull();
+});
+
+test("opening a live Codex session with no known pid logs it, and still opens it", async () => {
+  const lines: string[] = [];
+  const spy = spyOn(console, "error").mockImplementation((line: unknown) => void lines.push(String(line)));
+  try {
+    hub.handleHook({ hook_event_name: "UserPromptSubmit", session_id: ID, cwd: "/tmp/demo", prompt: "hi" }, { agent: "codex" });
+    openResult = await resumePlan();
+    const { ws } = await connect();
+    ws.send(JSON.stringify({ type: "open", id: ID }));
+    await waitFor(() => opened.length === 1);
+    expect(lines).toContain("open 0603472f: codex session is live but has no known pid, resuming it in a new Terminal tab");
+    ws.close();
+  } finally {
+    spy.mockRestore();
+  }
+});
+
 test("Codex hooks arrive on their own path, with the Codex process behind them", async () => {
   const post = (pid: string) =>
     fetch(`${hookUrl()}/codex`, {
@@ -457,6 +494,19 @@ test("Codex hooks arrive on their own path, with the Codex process behind them",
   await post("not a pid");
   expect(hub.openContext(ID).pid).toBe(4200);
   expect((await fetch(`${hookUrl()}/other`, { method: "POST", body: "{}" })).status).toBe(404);
+});
+
+test("a Codex session the Codex app started says so, one the CLI started does not", async () => {
+  const post = (id: string) =>
+    fetch(`${hookUrl()}/codex`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ hook_event_name: "UserPromptSubmit", session_id: id, cwd: "/tmp/demo", prompt: "hi" }),
+    });
+  await post(APP_THREAD);
+  await post(ID);
+  expect(hub.get(APP_THREAD)).toMatchObject({ agent: "codex", inCodexApp: true });
+  expect(hub.get(ID)!.inCodexApp).toBeUndefined();
 });
 
 test("a Codex session the admission turns down never reaches the hub", async () => {

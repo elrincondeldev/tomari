@@ -89,6 +89,8 @@ export interface PanelSession {
   kind?: SessionKind;
   /** Which agent runs the session; absent means Claude Code. */
   agent?: SessionAgent;
+  /** A Codex session the Codex app started, not the Codex CLI; absent otherwise. */
+  inCodexApp?: boolean;
   /** The permission prompt it waits on that the strip can answer; absent when none. */
   permission?: PermissionPrompt;
 }
