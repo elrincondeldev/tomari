@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, expect, test } from "bun:test";
+import { afterEach, beforeEach, expect, spyOn, test } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import type { ServerMessage } from "../../shared/protocol.ts";
@@ -6,7 +6,7 @@ import type { DesktopSession } from "./desktop-sessions.ts";
 import { FrontApp } from "./front-app.ts";
 import { SessionHub } from "./hub.ts";
 import { planOpen, type OpenResult } from "./open-session.ts";
-import { openLogLine, startServers } from "./server.ts";
+import { codexResumeLogLine, openLogLine, startServers } from "./server.ts";
 import type { CodexThread } from "./codex.ts";
 import { Store } from "./store.ts";
 
@@ -30,11 +30,13 @@ let desktopSessions: () => Promise<DesktopSession[]>;
 let terminal: () => Promise<OpenResult>;
 let codexLibrary: () => Promise<CodexThread[]>;
 let started: [cwd: string, agent: string][];
+let openResult: OpenResult | null;
 
 beforeEach(() => {
   opened = [];
   stopped = [];
   started = [];
+  openResult = null;
   stop = async (id) => {
     stopped.push(id);
     return { ok: true, command: ["fake-stop", id] };
@@ -52,7 +54,7 @@ beforeEach(() => {
     panelPort: 0,
     open: async (id, { cwd, kind, name } = {}) => {
       opened.push([id, cwd, kind, name]);
-      return { ok: true, command: ["fake-open", id] };
+      return openResult ?? { ok: true, command: ["fake-open", id] };
     },
     desktopSessions: () => desktopSessions(),
     terminal: () => terminal(),
@@ -442,6 +444,39 @@ test("openLogLine: one line per open request, without paths", () => {
   );
   expect(openLogLine(id, { ok: false, error: "x".repeat(300) })).toBe(`open 01234567: ${"x".repeat(120)}`);
   expect(openLogLine(id, { ok: false, error: "" })).toBe("open 01234567: ");
+});
+
+/** What opening a Codex session with no running process plans: the real resume command. */
+const resumePlan = () => planOpen(ID, { agent: "codex", cwd: "/tmp/demo", pid: null, inCodexApp: async () => false });
+
+test("codexResumeLogLine: says why a live Codex session was resumed, and says nothing for any other open", async () => {
+  const resume = await resumePlan();
+  const live = { agent: "codex", live: true } as const;
+  const line = (why: string) => `open 0603472f: codex session is live but has ${why}, resuming it in a new Terminal tab`;
+  expect(codexResumeLogLine(ID, live, resume, null)).toBe(line("no known pid"));
+  expect(codexResumeLogLine(ID, live, resume, 4200)).toBe(line("pid 4200 no longer running"));
+  const focus: OpenResult = { ok: true, command: ["osascript", "-e", "focus tab", "/dev/ttys007"] };
+  expect(codexResumeLogLine(ID, live, focus, 4200)).toBeNull(); // focused by its pid
+  expect(codexResumeLogLine(ID, { ...live, live: false }, resume, null)).toBeNull(); // closed: resuming is expected
+  expect(codexResumeLogLine(ID, live, { ok: true, command: ["open", `codex://threads/${ID}`] }, null)).toBeNull(); // the Codex app
+  expect(codexResumeLogLine(ID, { agent: undefined, live: true }, resume, null)).toBeNull(); // Claude
+  expect(codexResumeLogLine(ID, live, { ok: false, error: "timed out" }, null)).toBeNull();
+});
+
+test("opening a live Codex session with no known pid logs it, and still opens it", async () => {
+  const lines: string[] = [];
+  const spy = spyOn(console, "error").mockImplementation((line: unknown) => void lines.push(String(line)));
+  try {
+    hub.handleHook({ hook_event_name: "UserPromptSubmit", session_id: ID, cwd: "/tmp/demo", prompt: "hi" }, { agent: "codex" });
+    openResult = await resumePlan();
+    const { ws } = await connect();
+    ws.send(JSON.stringify({ type: "open", id: ID }));
+    await waitFor(() => opened.length === 1);
+    expect(lines).toContain("open 0603472f: codex session is live but has no known pid, resuming it in a new Terminal tab");
+    ws.close();
+  } finally {
+    spy.mockRestore();
+  }
 });
 
 test("Codex hooks arrive on their own path, with the Codex process behind them", async () => {

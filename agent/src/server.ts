@@ -5,10 +5,10 @@
 import { timingSafeEqual } from "node:crypto";
 import { stat } from "node:fs/promises";
 import { basename } from "node:path";
-import { BACKGROUND_KIND, type LibraryEntry, type ServerMessage } from "../../shared/protocol.ts";
+import { BACKGROUND_KIND, type LibraryEntry, type PanelSession, type ServerMessage } from "../../shared/protocol.ts";
 import { desktopSessionsLister, type DesktopSession } from "./desktop-sessions.ts";
 import type { SessionHub } from "./hub.ts";
-import { openSession, openTerminalTab, planNew, run, type OpenOptions, type OpenResult } from "./open-session.ts";
+import { openSession, openTerminalTab, planNew, resumedCodex, run, type OpenOptions, type OpenResult } from "./open-session.ts";
 import { parseClientMessage } from "./protocol-guard.ts";
 import { stopSession } from "./stop-session.ts";
 import type { HookEvent, HookOrigin } from "./state.ts";
@@ -236,15 +236,18 @@ export function startServers({
             case "open": {
               const session = hub.get(msg.id);
               const started = Date.now();
+              const context = hub.openContext(msg.id);
               const result = await open(msg.id, {
                 cwd: session?.cwd,
                 kind: session?.kind,
                 name: hub.titleOf(msg.id) ?? undefined,
                 agent: session?.agent,
-                ...hub.openContext(msg.id),
+                ...context,
                 focusedInDesktop: front.value === "desktop" && desktopFocus() === msg.id,
               });
               console.error(openLogLine(msg.id, result, Date.now() - started));
+              const resumed = codexResumeLogLine(msg.id, session, result, context.pid);
+              if (resumed) console.error(resumed);
               // The desktop log confirms focus a moment later; show it right away.
               if (result.ok) hub.setFocused(msg.id);
               else send(ws, { type: "error", message: result.error });
@@ -310,6 +313,16 @@ export function openLogLine(id: string, result: OpenResult, ms?: number): string
   if (result.ok) return `open ${id.slice(0, 8)}: ok${result.before ? " via needs-input" : ""}${took}`;
   const firstLine = result.error.split("\n")[0] ?? "";
   return `open ${id.slice(0, 8)}: ${firstLine.replace(/\S*\/\S*/g, "<path>").slice(0, 120)}${took}`;
+}
+
+/**
+ * A log line for when an open resumed a Codex session the agent still counts as running, in a new Terminal tab:
+ * its pid was never learned, or is no longer running. Null for any other open. No paths.
+ */
+export function codexResumeLogLine(id: string, session: Pick<PanelSession, "agent" | "live"> | undefined, result: OpenResult, pid: number | null): string | null {
+  if (session?.agent !== "codex" || !session.live || !resumedCodex(result)) return null;
+  const why = pid === null ? "no known pid" : `pid ${pid} no longer running`;
+  return `open ${id.slice(0, 8)}: codex session is live but has ${why}, resuming it in a new Terminal tab`;
 }
 
 function send(ws: { send(data: string): unknown }, message: ServerMessage) {

@@ -177,6 +177,11 @@ export interface OpenOptions {
 /** `before`, when set, runs first, and `command` follows once the app has had `REFOCUS_DELAY_MS` to act on it. */
 export type OpenResult = { ok: true; command: string[]; before?: string[] } | { ok: false; error: string };
 
+/** Whether the open resumed a Codex thread in a new Terminal tab, as it does for one with no running process. */
+export function resumedCodex(result: OpenResult): boolean {
+  return result.ok && result.command[2] === RESUME_CODEX_IN_TERMINAL;
+}
+
 /** A link that moves the desktop app off its focused session, so the next link to that session is acted on. */
 export const RELEASE_DESKTOP_FOCUS = ["open", "claude://code/needs-input?source=tomari"];
 export const REFOCUS_DELAY_MS = 500;
