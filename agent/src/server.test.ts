@@ -11,6 +11,7 @@ import type { CodexThread } from "./codex.ts";
 import { Store } from "./store.ts";
 
 const ID = "0603472f-b7c5-4dae-b7a1-142468264b30";
+const APP_THREAD = "44444444-4444-4444-8444-444444444444";
 const TOKEN = "test-token";
 
 const IDLE = "22222222-2222-4222-8222-222222222222";
@@ -58,6 +59,7 @@ beforeEach(() => {
     stop: (id) => stop(id),
     codexPid: async (reported) => (reported === 4242 ? 4200 : null),
     admitCodex: async (event) => event.hook_event_name !== "SessionStart",
+    inCodexApp: async (id) => id === APP_THREAD,
     codexLibrary: () => codexLibrary(),
     newSession: async (cwd, agent) => {
       started.push([cwd, agent]);
@@ -457,6 +459,19 @@ test("Codex hooks arrive on their own path, with the Codex process behind them",
   await post("not a pid");
   expect(hub.openContext(ID).pid).toBe(4200);
   expect((await fetch(`${hookUrl()}/other`, { method: "POST", body: "{}" })).status).toBe(404);
+});
+
+test("a Codex session the Codex app started says so, one the CLI started does not", async () => {
+  const post = (id: string) =>
+    fetch(`${hookUrl()}/codex`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ hook_event_name: "UserPromptSubmit", session_id: id, cwd: "/tmp/demo", prompt: "hi" }),
+    });
+  await post(APP_THREAD);
+  await post(ID);
+  expect(hub.get(APP_THREAD)).toMatchObject({ agent: "codex", inCodexApp: true });
+  expect(hub.get(ID)!.inCodexApp).toBeUndefined();
 });
 
 test("a Codex session the admission turns down never reaches the hub", async () => {

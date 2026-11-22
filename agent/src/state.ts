@@ -56,6 +56,8 @@ export interface HookOrigin {
   agent?: SessionAgent;
   /** The agent process that ran the hook, when the hook command reports it (Codex: `$PPID`). */
   pid?: number;
+  /** Set when the Codex app, not the CLI, started the Codex session. */
+  inCodexApp?: boolean;
 }
 
 export const isCodex = (rec: { agent?: SessionAgent }) => rec.agent === "codex";

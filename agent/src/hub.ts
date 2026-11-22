@@ -38,6 +38,8 @@ export class SessionHub {
   private prompts = new Map<string, string>();
   /** Where each session's transcript lives, from the hook payload; in memory only. */
   private transcripts = new Map<string, string>();
+  /** Codex sessions the Codex app started, from their rollout; in memory only. */
+  private inCodexApp = new Set<string>();
   /** Sessions whose first prompt was already looked up in the transcript, found or not: each is read once. */
   private lookedUp = new Set<string>();
   /** Sessions stopped from the panel → when the poll may list them again; in memory only. */
@@ -102,6 +104,7 @@ export class SessionHub {
       if (!this.transcripts.has(event.session_id) && !this.prompts.has(event.session_id)) this.lookedUp.delete(event.session_id);
       this.transcripts.set(event.session_id, event.transcript_path);
     }
+    if (origin.inCodexApp) this.inCodexApp.add(event.session_id);
     if (event.hook_event_name === "UserPromptSubmit" && typeof event.prompt === "string" && !this.prompts.has(event.session_id)) {
       const snippet = snippetOf(event.prompt);
       if (snippet) this.prompts.set(event.session_id, snippet);
@@ -224,6 +227,7 @@ export class SessionHub {
         this.prompts.delete(rec.id);
         this.labels.delete(rec.id);
         this.transcripts.delete(rec.id);
+        this.inCodexApp.delete(rec.id);
         this.lookedUp.delete(rec.id);
         this.stoppedUntil.delete(rec.id);
         this.store.deleteSession(rec.id);
@@ -339,6 +343,7 @@ export class SessionHub {
       icon: pin?.icon ?? defaultIcon(rec),
       ...(rec.kind ? { kind: rec.kind } : {}),
       ...(rec.agent ? { agent: rec.agent } : {}),
+      ...(this.inCodexApp.has(rec.id) ? { inCodexApp: true } : {}),
       ...(this.permissions.has(rec.id) ? { permission: this.permissions.get(rec.id) } : {}),
     };
   }

@@ -105,7 +105,8 @@ public struct Notice: Equatable, Sendable {
 
 /// Decides which sessions get a notification and which notifications are stale. A session gets one when it starts
 /// waiting on the user, and a new one for each new permission prompt or question while it waits, unless the user
-/// is looking at it (focused, with Terminal or the Claude desktop app in front). Its notification is withdrawn once
+/// is looking at it (focused, with Terminal or the Claude desktop app in front; or started in the Codex app, with
+/// that in front). Its notification is withdrawn once
 /// it no longer waits, or waits on something else. Sessions already waiting when the overlay connects get none.
 public struct NoticeTracker: Sendable {
     /// Per session, what its notification is about: the prompt's id, or when it started waiting.
@@ -126,7 +127,7 @@ public struct NoticeTracker: Sendable {
             let key = session.permission?.id ?? "since \(session.stateSince.timeIntervalSince1970)"
             nowWaiting[session.id] = key
             guard !initial, waiting[session.id] != key else { continue }
-            if frontApp.showsSessions && session.id == focusedId { continue }
+            if frontApp.isLookingAt(session, focusedId: focusedId) { continue }
             shown[session.id] = key
             post.append(Notice(session: session, answers: answers))
         }

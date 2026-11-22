@@ -488,6 +488,15 @@ describe("Codex sessions", () => {
     expect(hub.get(A)!.icon.character).toBe("robot");
   });
 
+  test("tell the panel which ones the Codex app started, and keep saying so on later events", () => {
+    const { hub } = setup();
+    hub.handleHook(ev(A, "UserPromptSubmit"), { ...codex, inCodexApp: true });
+    hub.handleHook(ev(B, "UserPromptSubmit"), codex);
+    hub.handleHook(ev(A, "Stop"), codex);
+    expect(hub.get(A)!.inCodexApp).toBe(true);
+    expect(hub.get(B)!.inCodexApp).toBeUndefined();
+  });
+
   test("take their thread title from Codex, which never renames a Claude Code session", () => {
     const { hub } = setup();
     hub.handleHook(ev(A, "UserPromptSubmit"), codex);

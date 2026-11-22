@@ -12,7 +12,7 @@ import { openSession, openTerminalTab, planNew, run, type OpenOptions, type Open
 import { parseClientMessage } from "./protocol-guard.ts";
 import { stopSession } from "./stop-session.ts";
 import type { HookEvent, HookOrigin } from "./state.ts";
-import { codexAdmission, codexPidResolver, codexThreads, type CodexThread } from "./codex.ts";
+import { codexAdmission, codexPidResolver, codexThreads, startedInCodexApp, type CodexThread } from "./codex.ts";
 import { PID_HEADER } from "./hooks-config.ts";
 import { FrontApp } from "./front-app.ts";
 import { answerable, PermissionDesk, HOLD_MS } from "./permissions.ts";
@@ -35,6 +35,8 @@ export interface ServerOptions {
   codexPid?: (reported: number) => Promise<number | null>;
   /** The session the desktop app counts as focused, from its log, or null; opening it again needs a detour. */
   desktopFocus?: () => string | null;
+  /** Whether the Codex app started a Codex session; replaceable so tests don't need rollouts. */
+  inCodexApp?: (sessionId: string, transcriptPath?: string) => Promise<boolean>;
   /** Whether a Codex event belongs to a session worth tracking; replaceable so tests don't need rollouts. */
   admitCodex?: (event: HookEvent, known: boolean) => Promise<boolean>;
   /** Codex's threads, running or not; replaceable so tests don't read Codex's database. */
@@ -59,6 +61,7 @@ export function startServers({
   desktopSessions = desktopSessionsLister(),
   codexPid = codexPidResolver(),
   admitCodex = codexAdmission(),
+  inCodexApp = startedInCodexApp,
   desktopFocus = () => null,
   codexLibrary = () => codexThreads(),
   permissionHoldMs = HOLD_MS,
@@ -116,6 +119,8 @@ export function startServers({
 
   /** Codex sessions already logged as held back, so each one is said once. */
   const heldBack = new Set<string>();
+  /** Codex sessions whose rollout was already read for where they started, so each is read once. */
+  const originChecked = new Set<string>();
 
   /** Sessions with a stop under way: a second request meanwhile would run `claude stop` twice. */
   const stopping = new Set<string>();
@@ -154,6 +159,12 @@ export function startServers({
               return new Response(null, { status: 204 });
             }
             origin.agent = "codex";
+            if (!originChecked.has(event.session_id)) {
+              if (originChecked.size > 500) originChecked.clear();
+              originChecked.add(event.session_id);
+              const path = typeof event.transcript_path === "string" ? event.transcript_path : undefined;
+              if (await inCodexApp(event.session_id, path)) origin.inCodexApp = true;
+            }
             const reported = Number(req.headers.get(PID_HEADER));
             const pid = Number.isSafeInteger(reported) && reported > 1 ? await codexPid(reported) : null;
             if (pid !== null) origin.pid = pid;
